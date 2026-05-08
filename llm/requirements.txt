@@ -1,0 +1,11 @@
+# shared-libraries/llm/requirements.txt
+# 기본 (항상 필요)
+openai>=1.30.0          # Local(LM Studio) + OpenAI + Azure Provider
+httpx>=0.27.0           # health_check용
+
+# Provider별 (사용하는 것만 설치)
+anthropic>=0.28.0       # Anthropic Claude Provider
+google-generativeai>=0.7.0  # Google Gemini Provider
+
+# 유틸리티
+python-dotenv>=1.0.0    # .env 파일 로드
