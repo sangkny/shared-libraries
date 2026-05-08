@@ -75,7 +75,9 @@ class LocalProvider(BaseProvider):
         import httpx
         try:
             base = os.getenv("LOCAL_BASE_URL", "http://host.docker.internal:8000/v1")
-            r = httpx.get(f"{base}/models", timeout=3)
+            # 동기 클라이언트 사용 — event loop 충돌 방지
+            with httpx.Client(timeout=3) as client:
+                r = client.get(f"{base}/models")
             models = [m["id"] for m in r.json().get("data", [])]
             return {"provider": "local", "status": "ok", "models": models}
         except Exception as e:
