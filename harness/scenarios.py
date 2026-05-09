@@ -14,6 +14,7 @@ Harness 시나리오 정의
 """
 from dataclasses import dataclass, field
 from typing import Callable, Any
+import re
 from ontology.base import OntologyDomain
 
 
@@ -76,6 +77,81 @@ def has_async_keyword(output: Any) -> tuple[bool, str]:
     """async def 키워드 포함 여부"""
     ok = "async def" in str(output)
     return ok, "async 함수 정의 있음" if ok else "async 키워드 없음"
+
+
+def _extract_python_from_markdown(output: Any) -> str:
+    """출력 문자열에서 ```python 블록이 있으면 추출. 없으면 전체 문자열 사용."""
+    text = str(output).strip()
+    fm = re.search(r"```(?:python|py)?\s*\n([\s\S]*?)```", text, re.I)
+    if fm:
+        return fm.group(1).strip()
+    return text
+
+
+def syntax_valid_python(output: Any) -> tuple[bool, str]:
+    """추출한 파이썬 문자열이 ast.parse 에 통과하는지 (문법 오류 수정 시나리오용)."""
+    import ast
+
+    body = _extract_python_from_markdown(output)
+    if not body:
+        return False, "파이썬 코드 없음"
+    try:
+        ast.parse(body)
+    except SyntaxError as e:
+        return False, f"SyntaxError: {e.msg} (line {e.lineno})"
+    return True, "파이썬 문법 검사 통과"
+
+
+def has_dataclass_marker(output: Any) -> tuple[bool, str]:
+    """@dataclass 데코레이터 포함 (클래스 생성 시나리오)."""
+    t = str(output)
+    ok = "@dataclass" in t
+    return ok, "@dataclass 있음" if ok else "@dataclass 없음"
+
+
+def has_class_keyword(output: Any) -> tuple[bool, str]:
+    ok = "class " in str(output)
+    return ok, "class 정의 있음" if ok else "class 정의 없음"
+
+
+def has_fastapi_route(output: Any) -> tuple[bool, str]:
+    """FastAPI 라우터/데코레이터 흔적 (엔드포인트 생성 시나리오)."""
+    t = str(output)
+    ok = (
+        "APIRouter" in t
+        or "@router." in t
+        or "@app." in t
+        or "fastapi." in t.lower()
+        or "FastAPI(" in t
+    )
+    return ok, "FastAPI 라우트 흔적 있음" if ok else "FastAPI 라우트 흔적 없음"
+
+
+def has_review_indicators(output: Any) -> tuple[bool, str]:
+    """코드 리뷰 형태 출력(개선점·위험·권장 등) 간접 검증."""
+    t = str(output).lower()
+    keys = (
+        "개선", "문제점", "권장", "리스크", "버그",
+        "issue", "recommend", "improve", "complexity",
+        "test", "readable", "naming", "smell",
+        "복잡", "가독",
+    )
+    hit = [k for k in keys if k in t]
+    ok = len(hit) >= 1
+    return ok, f"리뷰 키워드: {hit[:4]}" if ok else "리뷰 키워드 부족"
+
+
+def has_architecture_keywords(output: Any) -> tuple[bool, str]:
+    """아키텍처 논의(모놀리식·MSA·모듈 경계 등) 흔적."""
+    t = str(output).lower()
+    keys = (
+        "monolith", "microservice", "micro-service",
+        "모놀리", "마이크로", "mvp", "service",
+        "경계", "모듈", "decision", "트레이드",
+    )
+    hit = [k for k in keys if k in t]
+    ok = len(hit) >= 1
+    return ok, f"아키 키워드: {hit[:4]}" if ok else "아키텍처 키워드 부족"
 
 def has_medical_term(output: Any) -> tuple[bool, str]:
     """의학 용어(ICD 코드 또는 안과 용어) 포함 여부"""
@@ -180,6 +256,97 @@ SOFTWARE_SCENARIOS = [
         expect_pass=True,
         tags=["advanced", "function", "async", "networking"],
         timeout_sec=300,
+        max_iterations=2,
+    ),
+    # ── AutoNoGaDa 전용 (WEEK4 4-4-1) ─────────────────────────
+    HarnessScenario(
+        name="generate_class",
+        domain=OntologyDomain.SOFTWARE,
+        strategy="pipeline",
+        task=(
+            "Python `@dataclass`와 `frozen=True`를 사용하는 `UserDTO` 클래스를 작성하세요. "
+            "필드: `user_id: int`, `name: str`, `email: str | None = None`. "
+            "`field`로 검증 또는 기본값 설명 주석은 선택. 클래스와 필드 타입만 명확히 하고 불필요한 보일러플레이트는 줄이세요. "
+            "코드만 출력하세요."
+        ),
+        validators=[has_content, has_class_keyword, has_dataclass_marker, has_type_hints],
+        expect_pass=True,
+        tags=["autonogada", "class", "dataclass"],
+        timeout_sec=300,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="generate_api_endpoint",
+        domain=OntologyDomain.SOFTWARE,
+        strategy="pipeline",
+        task=(
+            "FastAPI `APIRouter(prefix='/items')`를 사용하여 "
+            "`GET /items/` 로 목록을 반환하고 `POST /items/` 로 항목을 생성하는 두 엔드포인트를 "
+            "`async def`로 구현하세요. 간단히 Pydantic `BaseModel`(name: str)만 사용해도 됩니다. "
+            "실제 저장소는 빈 리스트 메모리면 됩니다. 전체 라우터 정의 포함 코드만 출력하세요."
+        ),
+        validators=[has_content, has_fastapi_route, has_async_keyword, has_def_keyword],
+        expect_pass=True,
+        tags=["autonogada", "fastapi", "api"],
+        timeout_sec=320,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="fix_syntax_error",
+        domain=OntologyDomain.SOFTWARE,
+        strategy="pipeline",
+        task=(
+            "다음 파이썬 코드에 문법 오류가 있습니다. **수정된 전체 코드**만 출력하세요.\n\n"
+            "```python\n"
+            "def broken_sum(a, b)\n"
+            "    \"\"\"두 수를 더한다.\"\"\"\n"
+            "    return a + b\n"
+            "```"
+        ),
+        validators=[has_content, has_def_keyword, syntax_valid_python],
+        expect_pass=True,
+        tags=["autonogada", "fix", "syntax"],
+        timeout_sec=240,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="review_complex_function",
+        domain=OntologyDomain.SOFTWARE,
+        strategy="pipeline",
+        task=(
+            "아래 함수에 대해 **코드 리뷰**만 작성하세요 (새 구현 코드를 다시 작성하지 마세요).\n\n"
+            "```python\n"
+            "def f(n):\n"
+            "    r = []; i = j = k = n\n"
+            "    while i>0:j=i*i;k=j+i;i-=1;r.append((j,k))\n"
+            "    def g(x):\n"
+            "        if x:r.extend(g(x-1))\n"
+            "    g(3); return \"\".join(str(t)for t in r)\n"
+            "```\n\n"
+            "가독성, 네이밍, 테스트 권장, 잠재 버그 또는 복잡도를 불릿/짧은 문단으로 논하고, "
+            "**개선·문제점·권장** 단어 또는 영어 등가 표현을 반드시 포함하세요."
+        ),
+        validators=[has_content, has_review_indicators, has_sufficient_length],
+        expect_pass=True,
+        tags=["autonogada", "review"],
+        timeout_sec=300,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="debate_architecture",
+        domain=OntologyDomain.SOFTWARE,
+        strategy="debate",
+        task=(
+            "초기 5명 이하 스타트업이 MVP 백엔드를 만든다. "
+            "**모놀리식(Monolithic)** 과 **마이크로서비스(Microservices)** 중 무엇을 권하고 왜 그런지 논하고, "
+            "트레이드오프와 나중에 전환 가능성을 포함하세요. "
+            "**MVP**, **마이크로** 또는 **microservice**, **모놀리** 또는 **monolith** 같은 용어를 본문에 포함하세요. "
+            "한국어로 답해도 됩니다."
+        ),
+        validators=[has_content, has_architecture_keywords, has_sufficient_length],
+        expect_pass=True,
+        tags=["autonogada", "debate", "architecture"],
+        timeout_sec=400,
         max_iterations=2,
     ),
 ]
