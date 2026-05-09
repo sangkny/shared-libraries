@@ -72,6 +72,29 @@ def has_business_content(output: Any) -> tuple[bool, str]:
     ok = len(text) > 100
     return ok, f"비즈니스 내용 있음 ({len(text)}자)" if ok else "내용 너무 짧음"
 
+def has_async_keyword(output: Any) -> tuple[bool, str]:
+    """async def 키워드 포함 여부"""
+    ok = "async def" in str(output)
+    return ok, "async 함수 정의 있음" if ok else "async 키워드 없음"
+
+def has_medical_term(output: Any) -> tuple[bool, str]:
+    """의학 용어(ICD 코드 또는 안과 용어) 포함 여부"""
+    text = str(output).lower()
+    terms = [
+        "녹내장", "glaucoma", "황반", "macula", "망막", "retina",
+        "시력", "visual acuity", "안압", "iop", "oct", "안저",
+        "h40", "h35", "h36", "h26", "cornea", "각막",
+    ]
+    found = [t for t in terms if t in text]
+    ok = len(found) >= 1
+    return ok, f"의학 용어 있음: {found[:3]}" if ok else "의학 용어 없음"
+
+def has_sufficient_length(output: Any) -> tuple[bool, str]:
+    """출력이 충분히 긴지 확인 (200자 이상)"""
+    text = str(output)
+    ok = len(text) >= 200
+    return ok, f"충분한 길이 ({len(text)}자)" if ok else f"내용 너무 짧음 ({len(text)}자, 200자 필요)"
+
 
 # ════════════════════════════════════════════════════════════
 # 도메인별 시나리오 정의
@@ -113,6 +136,52 @@ SOFTWARE_SCENARIOS = [
         timeout_sec=360,
         max_iterations=2,
     ),
+    HarnessScenario(
+        name="fibonacci",
+        domain=OntologyDomain.SOFTWARE,
+        strategy="pipeline",
+        task=(
+            "n번째 피보나치 수를 반환하는 fibonacci(n: int) -> int 함수를 구현하세요. "
+            "재귀와 반복(iterative) 두 가지 방식을 모두 구현하고, "
+            "타입 힌트·docstring·에러 처리(n < 0 시 ValueError)를 포함하세요."
+        ),
+        validators=[has_content, has_def_keyword, has_type_hints, has_docstring],
+        expect_pass=True,
+        tags=["intermediate", "function", "algorithm"],
+        timeout_sec=300,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="data_validator",
+        domain=OntologyDomain.SOFTWARE,
+        strategy="pipeline",
+        task=(
+            "이메일 주소와 한국 휴대폰 번호(010-XXXX-XXXX)를 각각 검증하는 "
+            "validate_email(email: str) -> bool 과 "
+            "validate_phone_kr(phone: str) -> bool 함수를 정규식을 사용하여 구현하세요. "
+            "타입 힌트, docstring, 예시 테스트 코드를 포함하세요."
+        ),
+        validators=[has_content, has_def_keyword, has_type_hints, has_docstring],
+        expect_pass=True,
+        tags=["intermediate", "function", "validation", "regex"],
+        timeout_sec=300,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="async_fetcher",
+        domain=OntologyDomain.SOFTWARE,
+        strategy="pipeline",
+        task=(
+            "aiohttp를 사용하여 여러 URL에서 비동기로 데이터를 가져오는 "
+            "async def fetch_all(urls: list[str]) -> list[dict] 함수를 구현하세요. "
+            "타임아웃(30초), 에러 처리, 타입 힌트, docstring을 포함하세요."
+        ),
+        validators=[has_content, has_def_keyword, has_type_hints, has_async_keyword],
+        expect_pass=True,
+        tags=["advanced", "function", "async", "networking"],
+        timeout_sec=300,
+        max_iterations=2,
+    ),
 ]
 
 # ── MEDICAL 시나리오 ──────────────────────────────────────
@@ -139,6 +208,53 @@ MEDICAL_SCENARIOS = [
         expect_pass=True,
         tags=["medical", "pii", "safety"],
         timeout_sec=240,
+        max_iterations=1,
+    ),
+    HarnessScenario(
+        name="glaucoma_report",
+        domain=OntologyDomain.MEDICAL,
+        strategy="consensus",
+        task=(
+            "개방각 녹내장(H40.1) 환자의 시야 검사(Visual Field Test) 소견을 작성하세요. "
+            "안압 수치, 시신경 손상 단계(초기/중기/말기), 치료 방향을 포함하되 "
+            "환자 개인정보(이름, 주민번호 등)는 포함하지 마세요."
+        ),
+        validators=[has_content, no_pii_data, has_medical_term, has_sufficient_length],
+        expect_pass=True,
+        tags=["medical", "eye", "glaucoma", "report", "consensus"],
+        timeout_sec=300,
+        max_iterations=1,
+    ),
+    HarnessScenario(
+        name="vision_correction",
+        domain=OntologyDomain.MEDICAL,
+        strategy="pipeline",
+        task=(
+            "라식(LASIK) 수술 전 기본 검사 항목 체크리스트를 작성하세요. "
+            "각막 두께, 굴절 이상 범위, 금기 사항(원추각막 등)을 포함한 "
+            "5~7개 항목을 의학적으로 정확하게 기술하세요. "
+            "개인정보는 포함하지 마세요."
+        ),
+        validators=[has_content, no_pii_data, has_medical_term, has_sufficient_length],
+        expect_pass=True,
+        tags=["medical", "eye", "vision-correction", "checklist"],
+        timeout_sec=240,
+        max_iterations=1,
+    ),
+    HarnessScenario(
+        name="oct_analysis",
+        domain=OntologyDomain.MEDICAL,
+        strategy="consensus",
+        task=(
+            "빛간섭단층촬영(OCT) 검사에서 황반원공(Macular Hole, H35.34)이 "
+            "발견된 경우의 소견 및 처치 방향을 간략히 서술하세요. "
+            "OCT 소견 특징(층 구조 손상 등), 수술 필요성 판단 기준을 포함하세요. "
+            "개인식별정보는 포함하지 마세요."
+        ),
+        validators=[has_content, no_pii_data, has_medical_term, has_sufficient_length],
+        expect_pass=True,
+        tags=["medical", "eye", "oct", "report", "consensus"],
+        timeout_sec=300,
         max_iterations=1,
     ),
 ]

@@ -22,9 +22,10 @@ from ontology.base import OntologyDomain
 from harness.runner import HarnessRunner, HarnessReport, ScenarioResult
 from harness.reporter import HarnessReporter, HarnessDiff
 from harness.scenarios import (
-    SMOKE_SCENARIOS, SOFTWARE_SCENARIOS,
+    SMOKE_SCENARIOS, SOFTWARE_SCENARIOS, MEDICAL_SCENARIOS,
     HarnessScenario, get_scenarios,
     has_content, has_type_hints, has_def_keyword,
+    has_async_keyword, has_medical_term, has_sufficient_length,
 )
 
 
@@ -88,7 +89,10 @@ class TestHarnessScenarios:
             assert s.name, f"name 없음"
             assert s.task, f"task 없음 [{s.name}]"
             assert s.timeout_sec > 0, f"timeout 잘못됨 [{s.name}]"
+            assert s.max_iterations >= 1, f"max_iterations 잘못됨 [{s.name}]"
+            assert len(s.validators) >= 1, f"validators 없음 [{s.name}]"
         print(f"\n  전체 시나리오 수: {len(ALL_SCENARIOS)}")
+        assert len(ALL_SCENARIOS) >= 12, f"시나리오 수 부족: {len(ALL_SCENARIOS)}"
 
     def test_get_scenarios_by_domain(self):
         """도메인 필터링 동작 확인"""
@@ -111,24 +115,42 @@ class TestHarnessScenarios:
     def test_validator_functions(self):
         """검증 함수들이 올바르게 동작하는지"""
         # has_content
-        ok, msg = has_content("def add(a, b): return a+b")
+        ok, _ = has_content("def add(a, b): return a+b")
         assert ok is True
-        ok, msg = has_content("")
+        ok, _ = has_content("")
         assert ok is False
 
         # has_type_hints
-        ok, msg = has_type_hints("def add(a: int, b: int) -> int: return a+b")
+        ok, _ = has_type_hints("def add(a: int, b: int) -> int: return a+b")
         assert ok is True
-        ok, msg = has_type_hints("def add(a, b): return a+b")
+        ok, _ = has_type_hints("def add(a, b): return a+b")
         assert ok is False
 
         # has_def_keyword
-        ok, msg = has_def_keyword("def calculate(): pass")
+        ok, _ = has_def_keyword("def calculate(): pass")
         assert ok is True
-        ok, msg = has_def_keyword("result = 42")
+        ok, _ = has_def_keyword("result = 42")
         assert ok is False
 
-        print("\n  ✅ 모든 validator 함수 정상 동작")
+        # has_async_keyword
+        ok, _ = has_async_keyword("async def fetch(): pass")
+        assert ok is True
+        ok, _ = has_async_keyword("def fetch(): pass")
+        assert ok is False
+
+        # has_medical_term
+        ok, _ = has_medical_term("녹내장(H40.1) 소견: 안압 상승")
+        assert ok is True
+        ok, _ = has_medical_term("일반 텍스트입니다.")
+        assert ok is False
+
+        # has_sufficient_length
+        ok, _ = has_sufficient_length("a" * 200)
+        assert ok is True
+        ok, _ = has_sufficient_length("짧음")
+        assert ok is False
+
+        print("\n  ✅ 모든 validator 함수 정상 동작 (6종)")
 
 
 # ════════════════════════════════════════════════════════════
