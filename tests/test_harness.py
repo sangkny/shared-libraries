@@ -26,6 +26,7 @@ from harness.scenarios import (
     HarnessScenario, get_scenarios,
     has_content, has_type_hints, has_def_keyword,
     has_async_keyword, has_medical_term, has_sufficient_length,
+    has_svg_root, extract_svg_fragment,
 )
 
 
@@ -99,12 +100,15 @@ class TestHarnessScenarios:
         sw = get_scenarios(domain=OntologyDomain.SOFTWARE)
         med = get_scenarios(domain=OntologyDomain.MEDICAL)
         biz = get_scenarios(domain=OntologyDomain.BUSINESS)
+        svg = get_scenarios(domain=OntologyDomain.SVG)
         print(f"\n  SOFTWARE: {len(sw)}개")
         print(f"  MEDICAL:  {len(med)}개")
         print(f"  BUSINESS: {len(biz)}개")
+        print(f"  SVG:      {len(svg)}개")
         assert len(sw) >= 1
         assert len(med) >= 1
         assert len(biz) >= 1
+        assert len(svg) >= 2
 
     def test_get_scenarios_by_tag(self):
         """태그 필터링 동작 확인"""
@@ -150,7 +154,13 @@ class TestHarnessScenarios:
         ok, _ = has_sufficient_length("짧음")
         assert ok is False
 
-        print("\n  ✅ 모든 validator 함수 정상 동작 (6종)")
+        ok, _ = has_svg_root("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'></svg>")
+        assert ok is True
+        ok, _ = has_svg_root("no markup")
+        assert ok is False
+        assert "<svg" in extract_svg_fragment("prefix <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'/> suffix").lower()
+
+        print("\n  ✅ 모든 validator 함수 정상 동작 (SVG 추출 포함)")
 
 
 # ════════════════════════════════════════════════════════════

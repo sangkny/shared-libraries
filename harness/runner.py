@@ -28,11 +28,12 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from ontology.base import OntologyDomain, ValidationResult
 from ontology.validator import OntologyValidator
 from agents.orchestrator import Orchestrator, OrchestraStrategy, OrchestratorResult
-from .scenarios import HarnessScenario, ALL_SCENARIOS, SMOKE_SCENARIOS, get_scenarios
+from .scenarios import HarnessScenario, ALL_SCENARIOS, SMOKE_SCENARIOS, get_scenarios, extract_svg_fragment
 
 log = logging.getLogger("harness.runner")
 
@@ -183,16 +184,37 @@ class HarnessRunner:
             iterations   = orch_result.iterations
 
             # ── Step 2: OntologyValidator 자동 검증 ─────────
-            # 결과물이 dict이면 구조화 검증, 아니면 텍스트로 기본 검증
+            # dict 출력: 도메인별 기본 규칙
+            # SVG 도메인 + str 출력: 시나리오의 svg_ontology_type으로 for_svg() 페이로드 구성
             ontology_passed = True
             if isinstance(output, dict):
-                validator     = OntologyValidator(domain=scenario.domain)
-                ont_result    = await validator.validate(output)
+                validator = OntologyValidator(domain=scenario.domain)
+                ont_result = await validator.validate(output)
                 ontology_passed = ont_result.passed
                 if not ontology_passed:
                     log.warning(
                         f"[Harness] Ontology 검증 실패: "
                         f"{[e.message for e in ont_result.errors[:3]]}"
+                    )
+            elif (
+                scenario.domain == OntologyDomain.SVG
+                and scenario.svg_ontology_type
+                and str(output).strip()
+            ):
+                svg_text = extract_svg_fragment(output)
+                payload: dict[str, Any] = {
+                    "svg_content": svg_text,
+                    "svg_type": scenario.svg_ontology_type,
+                }
+                if scenario.svg_ontology_type == "medical_report":
+                    payload["no_pii"] = True
+                ont_sv = OntologyValidator.for_svg()
+                ont_result = await ont_sv.validate(payload)
+                ontology_passed = ont_result.passed
+                if not ontology_passed:
+                    log.warning(
+                        "[Harness] SVG Ontology 실패: %s",
+                        [e.message for e in ont_result.errors[:3]],
                     )
 
             # ── Step 3: 커스텀 Validator 실행 ─────────────

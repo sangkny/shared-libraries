@@ -30,6 +30,8 @@ class HarnessScenario:
     tags:           list[str] = field(default_factory=list)
     timeout_sec:    int   = 180
     max_iterations: int   = 1   # smoke=1, 일반=2 (HEAVY 모델 호출 횟수 제한)
+    # domain=SVG 이고 에이전트 출력이 str일 때 for_svg()에 넣을 svg_type (Ontology enum 값)
+    svg_ontology_type: str | None = None
 
 
 # ════════════════════════════════════════════════════════════
@@ -176,6 +178,28 @@ def has_cost_keywords(output: Any) -> tuple[bool, str]:
     hit = [k for k in keys if k in t]
     ok = len(hit) >= 2
     return ok, f"비용 키워드: {hit[:6]}" if ok else "비용/라우팅 키워드 부족"
+
+
+def extract_svg_fragment(output: Any) -> str:
+    """에이전트 출력에서 첫 <svg …> … </svg> 블록 추출 (없으면 전체 문자열)."""
+    text = str(output).strip()
+    fm = re.search(r"<svg[\s\S]*?</svg>", text, re.I)
+    if fm:
+        return fm.group(0).strip()
+    return text
+
+
+def has_svg_root(output: Any) -> tuple[bool, str]:
+    """출력에 유효한 SVG 루트 태그가 있는지 (간접 검증)."""
+    frag = extract_svg_fragment(output)
+    ok = "<svg" in frag.lower() and "</svg>" in frag.lower()
+    return ok, "SVG 마크업 포함" if ok else "SVG 마크업 없음"
+
+
+def has_viewbox_hint(output: Any) -> tuple[bool, str]:
+    t = extract_svg_fragment(output).lower()
+    ok = "viewbox=" in t or "viewBox=" in str(output)
+    return ok, "viewBox 속성 있음" if ok else "viewBox 없음(권고)"
 
 
 def has_medical_term(output: Any) -> tuple[bool, str]:
@@ -534,6 +558,42 @@ COST_SCENARIOS = [
     ),
 ]
 
+# ── Phase 2: SVG (Harness — str 출력에 대해 for_svg 검증) ──
+SVG_SCENARIOS = [
+    HarnessScenario(
+        name="svg_architecture_three_tier",
+        domain=OntologyDomain.SVG,
+        strategy="pipeline",
+        task=(
+            "다음 조건을 만족하는 **SVG XML만** 출력하세요. 자연어 설명은 하지 마세요.\n"
+            "- xmlns='http://www.w3.org/2000/svg', viewBox='0 0 520 200', width/height 양수\n"
+            "- Presentation / Application / Data 3개 레이어를 rect와 text로 표현\n"
+            "- <script>, http://, https:// 링크 금지\n"
+        ),
+        validators=[has_content, has_svg_root, has_viewbox_hint],
+        expect_pass=True,
+        tags=["phase2", "svg", "architecture"],
+        timeout_sec=300,
+        max_iterations=2,
+        svg_ontology_type="architecture",
+    ),
+    HarnessScenario(
+        name="svg_flowchart_decision_stub",
+        domain=OntologyDomain.SVG,
+        strategy="pipeline",
+        task=(
+            "**SVG XML만** 출력하세요. 간단한 결정 다이어그램(마름모 1개 + Yes/No 박스)을 "
+            "viewBox가 있는 단일 <svg>로 그리세요. script 태그 금지."
+        ),
+        validators=[has_content, has_svg_root],
+        expect_pass=True,
+        tags=["phase2", "svg", "flowchart"],
+        timeout_sec=280,
+        max_iterations=2,
+        svg_ontology_type="flowchart",
+    ),
+]
+
 # ── 전체 시나리오 모음 ─────────────────────────────────────
 ALL_SCENARIOS = (
     SOFTWARE_SCENARIOS
@@ -541,6 +601,7 @@ ALL_SCENARIOS = (
     + BUSINESS_SCENARIOS
     + KNOWLEDGE_SCENARIOS
     + COST_SCENARIOS
+    + SVG_SCENARIOS
 )
 
 # ── 스모크 테스트 (빠른 검증용) ───────────────────────────
