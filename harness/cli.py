@@ -59,9 +59,12 @@ async def _cmd_domain(args: argparse.Namespace) -> int:
     from ontology.base import OntologyDomain
 
     domain_map = {
-        "software": OntologyDomain.SOFTWARE,
-        "medical":  OntologyDomain.MEDICAL,
-        "business": OntologyDomain.BUSINESS,
+        "software":   OntologyDomain.SOFTWARE,
+        "medical":    OntologyDomain.MEDICAL,
+        "business":   OntologyDomain.BUSINESS,
+        "knowledge":  OntologyDomain.KNOWLEDGE,
+        "cost":       OntologyDomain.COST,
+        "svg":        OntologyDomain.SVG,
     }
     domain = domain_map[args.name]
 
@@ -143,9 +146,12 @@ async def _cmd_compare(args: argparse.Namespace) -> int:
     else:
         from ontology.base import OntologyDomain
         domain_map = {
-            "software": OntologyDomain.SOFTWARE,
-            "medical":  OntologyDomain.MEDICAL,
-            "business": OntologyDomain.BUSINESS,
+            "software":   OntologyDomain.SOFTWARE,
+            "medical":    OntologyDomain.MEDICAL,
+            "business":   OntologyDomain.BUSINESS,
+            "knowledge":  OntologyDomain.KNOWLEDGE,
+            "cost":       OntologyDomain.COST,
+            "svg":        OntologyDomain.SVG,
         }
         domain = domain_map.get(suite)
         if domain is None:
@@ -309,7 +315,7 @@ def build_parser() -> argparse.ArgumentParser:
     domain_p = subparsers.add_parser("domain", help="도메인별 전체 시나리오 실행")
     domain_p.add_argument(
         "name",
-        choices=["software", "medical", "business"],
+        choices=["software", "medical", "business", "knowledge", "cost", "svg"],
         help="도메인 이름",
     )
     _add_common_args(domain_p)
@@ -335,7 +341,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     compare_p.add_argument(
         "--suite",
-        choices=["smoke", "all", "software", "medical", "business"],
+        choices=[
+            "smoke", "all",
+            "software", "medical", "business",
+            "knowledge", "cost", "svg",
+        ],
         default="smoke",
         help="실행할 테스트 스위트 (기본: smoke)",
     )

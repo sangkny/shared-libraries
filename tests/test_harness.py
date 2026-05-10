@@ -108,7 +108,7 @@ class TestHarnessScenarios:
         assert len(sw) >= 1
         assert len(med) >= 1
         assert len(biz) >= 1
-        assert len(svg) >= 2
+        assert len(svg) >= 4
 
     def test_get_scenarios_by_tag(self):
         """태그 필터링 동작 확인"""

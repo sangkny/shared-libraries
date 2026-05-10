@@ -172,6 +172,9 @@ class HarnessRunner:
                 domain=scenario.domain,
                 strategy=OrchestraStrategy(scenario.strategy),
                 max_iterations=scenario.max_iterations,
+                fastest_timeout_sec=float(scenario.timeout_sec)
+                if str(scenario.strategy).lower() == "fastest"
+                else None,
             )
 
             orch_result: OrchestratorResult = await asyncio.wait_for(

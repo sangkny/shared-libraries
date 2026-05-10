@@ -89,11 +89,17 @@ class Orchestrator(BaseAgent):
         domain:         OntologyDomain = OntologyDomain.GENERAL,
         strategy:       OrchestraStrategy = OrchestraStrategy.PIPELINE,
         max_iterations: int = 3,
+        fastest_timeout_sec: float | None = None,
         **kwargs,
     ):
         super().__init__(domain=domain, **kwargs)
         self.strategy       = strategy
         self.max_iterations = min(max_iterations, self.MAX_ITERATIONS)
+        self._fastest_timeout = (
+            float(fastest_timeout_sec)
+            if fastest_timeout_sec is not None
+            else self.TIMEOUT_SECONDS
+        )
 
         # Agent 초기화 (동일 task_id + llm 공유)
         agent_kwargs = dict(domain=domain, llm=self.llm, task_id=self.task_id)
@@ -431,12 +437,14 @@ class Orchestrator(BaseAgent):
         타임아웃 내 가장 먼저 응답한 결과 사용
         Fallback — 긴급 상황 UX 보호
         """
-        self.log.info(f"[{self.task_id}] FASTEST 전략 — timeout={self.TIMEOUT_SECONDS}s")
+        self.log.info(
+            f"[{self.task_id}] FASTEST 전략 — timeout={self._fastest_timeout}s",
+        )
 
         try:
             gen_result = await asyncio.wait_for(
                 self._generator.run(task, context),
-                timeout=self.TIMEOUT_SECONDS,
+                timeout=self._fastest_timeout,
             )
             passed = gen_result.success
             return OrchestratorResult(
@@ -453,7 +461,7 @@ class Orchestrator(BaseAgent):
                 task_id=self.task_id, strategy=self.strategy,
                 domain=self.domain, passed=False, output=None,
                 iterations=1, lore=self._collect_lore(),
-                error=f"타임아웃 ({self.TIMEOUT_SECONDS}s 초과)",
+                error=f"타임아웃 ({self._fastest_timeout}s 초과)",
             )
 
     # ── 내부 헬퍼 ─────────────────────────────────────────

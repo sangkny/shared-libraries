@@ -592,6 +592,37 @@ SVG_SCENARIOS = [
         max_iterations=2,
         svg_ontology_type="flowchart",
     ),
+    HarnessScenario(
+        name="svg_flowchart_generation",
+        domain=OntologyDomain.SVG,
+        strategy="fastest",
+        task=(
+            "사용자 로그인 → JWT 발급 → API 접근 흐름을 플로우차트로 그려주세요. "
+            "**SVG XML만** 출력하세요 (자연어 설명 금지)."
+        ),
+        validators=[has_content],
+        expect_pass=True,
+        tags=["svg", "flowchart", "smoke"],
+        timeout_sec=120,
+        max_iterations=1,
+        svg_ontology_type="flowchart",
+    ),
+    HarnessScenario(
+        name="svg_medical_report_no_pii",
+        domain=OntologyDomain.SVG,
+        strategy="pipeline",
+        task=(
+            "황반변성(H35.3) 진단 결과를 의료 보고서 형태의 **SVG XML만** 생성하세요. "
+            "차트·도식 영역 외에는 설명을 쓰지 마세요. "
+            "환자 이름, 주민번호 등 개인정보는 절대 포함하지 마세요."
+        ),
+        validators=[has_content, no_pii_data],
+        expect_pass=True,
+        tags=["svg", "medical", "pii"],
+        timeout_sec=150,
+        max_iterations=1,
+        svg_ontology_type="medical_report",
+    ),
 ]
 
 # ── 전체 시나리오 모음 ─────────────────────────────────────
