@@ -33,7 +33,15 @@ from typing import Any
 from ontology.base import OntologyDomain, ValidationResult
 from ontology.validator import OntologyValidator
 from agents.orchestrator import Orchestrator, OrchestraStrategy, OrchestratorResult
-from .scenarios import HarnessScenario, ALL_SCENARIOS, SMOKE_SCENARIOS, get_scenarios, extract_svg_fragment
+from .scenarios import (
+    HarnessScenario,
+    ALL_SCENARIOS,
+    SMOKE_SCENARIOS,
+    extract_polyglot_code,
+    extract_svg_fragment,
+    get_scenarios,
+    infer_polyglot_function_name,
+)
 
 log = logging.getLogger("harness.runner")
 
@@ -217,6 +225,25 @@ class HarnessRunner:
                 if not ontology_passed:
                     log.warning(
                         "[Harness] SVG Ontology 실패: %s",
+                        [e.message for e in ont_result.errors[:3]],
+                    )
+            elif (
+                scenario.domain == OntologyDomain.POLYGLOT
+                and scenario.polyglot_language
+                and str(output).strip()
+            ):
+                code_text = extract_polyglot_code(output, scenario.polyglot_language)
+                fn = infer_polyglot_function_name(code_text, scenario.polyglot_language)
+                payload_pg: dict[str, Any] = {
+                    "code": code_text,
+                    "function_name": fn,
+                }
+                ont_pg = OntologyValidator.for_polyglot(scenario.polyglot_language)
+                ont_result = await ont_pg.validate(payload_pg)
+                ontology_passed = ont_result.passed
+                if not ontology_passed:
+                    log.warning(
+                        "[Harness] POLYGLOT Ontology 실패: %s",
                         [e.message for e in ont_result.errors[:3]],
                     )
 

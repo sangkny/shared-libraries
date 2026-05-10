@@ -64,6 +64,7 @@ async def _cmd_domain(args: argparse.Namespace) -> int:
         "business":   OntologyDomain.BUSINESS,
         "knowledge":  OntologyDomain.KNOWLEDGE,
         "cost":       OntologyDomain.COST,
+        "polyglot":   OntologyDomain.POLYGLOT,
         "svg":        OntologyDomain.SVG,
     }
     domain = domain_map[args.name]
@@ -151,6 +152,7 @@ async def _cmd_compare(args: argparse.Namespace) -> int:
             "business":   OntologyDomain.BUSINESS,
             "knowledge":  OntologyDomain.KNOWLEDGE,
             "cost":       OntologyDomain.COST,
+            "polyglot":   OntologyDomain.POLYGLOT,
             "svg":        OntologyDomain.SVG,
         }
         domain = domain_map.get(suite)
@@ -315,7 +317,10 @@ def build_parser() -> argparse.ArgumentParser:
     domain_p = subparsers.add_parser("domain", help="도메인별 전체 시나리오 실행")
     domain_p.add_argument(
         "name",
-        choices=["software", "medical", "business", "knowledge", "cost", "svg"],
+        choices=[
+            "software", "medical", "business", "knowledge", "cost",
+            "polyglot", "svg",
+        ],
         help="도메인 이름",
     )
     _add_common_args(domain_p)
@@ -344,7 +349,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[
             "smoke", "all",
             "software", "medical", "business",
-            "knowledge", "cost", "svg",
+            "knowledge", "cost", "polyglot", "svg",
         ],
         default="smoke",
         help="실행할 테스트 스위트 (기본: smoke)",

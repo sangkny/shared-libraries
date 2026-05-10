@@ -32,6 +32,8 @@ class HarnessScenario:
     max_iterations: int   = 1   # smoke=1, 일반=2 (HEAVY 모델 호출 횟수 제한)
     # domain=SVG 이고 에이전트 출력이 str일 때 for_svg()에 넣을 svg_type (Ontology enum 값)
     svg_ontology_type: str | None = None
+    # domain=POLYGLOT 이고 출력이 코드 문자열일 때 for_polyglot(language) 검증 대상 언어
+    polyglot_language: str | None = None
 
 
 # ════════════════════════════════════════════════════════════
@@ -200,6 +202,62 @@ def has_viewbox_hint(output: Any) -> tuple[bool, str]:
     t = extract_svg_fragment(output).lower()
     ok = "viewbox=" in t or "viewBox=" in str(output)
     return ok, "viewBox 속성 있음" if ok else "viewBox 없음(권고)"
+
+
+def extract_polyglot_code(output: Any, lang: str) -> str:
+    """펜스 블록에서 언어별 코드 추출."""
+    text = str(output).strip()
+    langs: list[str] = []
+    l = lang.lower().strip()
+    if l == "typescript":
+        langs = ["typescript", "ts"]
+    elif l == "rust":
+        langs = ["rust", "rs"]
+    else:
+        langs = ["python", "py"]
+    for cand in langs:
+        fm = re.search(
+            rf"```(?:{re.escape(cand)})\s*\n([\s\S]*?)```",
+            text,
+            re.I,
+        )
+        if fm:
+            return fm.group(1).strip()
+    fb = re.search(r"```\s*\n([\s\S]*?)```", text)
+    if fb:
+        return fb.group(1).strip()
+    return text
+
+
+def infer_polyglot_function_name(code: str, lang: str) -> str:
+    l = lang.lower().strip()
+    if l == "typescript":
+        m = re.search(
+            r"(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z_][a-zA-Z0-9]*)",
+            code,
+        )
+        if m:
+            return m.group(1)
+        m = re.search(
+            r"const\s+([a-z][a-zA-Z0-9]*)\s*=\s*(?:async\s*)?\(",
+            code,
+        )
+        return m.group(1) if m else "snippet"
+    if l == "rust":
+        m = re.search(r"fn\s+([a-z_][a-z0-9_]*)", code)
+        return m.group(1) if m else "snippet"
+    m = re.search(r"def\s+([a-z_][a-z0-9_]*)", code)
+    return m.group(1) if m else "snippet"
+
+
+def triple_polyglot_fences(output: Any) -> tuple[bool, str]:
+    """Python·TypeScript·Rust 펜스 3종 포함 여부 (polyglot_comparison)."""
+    s = str(output).lower()
+    ok_py = bool(re.search(r"```(?:python|py)\b", s))
+    ok_ts = bool(re.search(r"```(?:typescript|ts)\b", s))
+    ok_rs = bool(re.search(r"```(?:rust|rs)\b", s))
+    ok = ok_py and ok_ts and ok_rs
+    return ok, "3종 언어 펜스 감지" if ok else "python/typescript/rust 펜스 부족"
 
 
 def has_medical_term(output: Any) -> tuple[bool, str]:
@@ -558,6 +616,58 @@ COST_SCENARIOS = [
     ),
 ]
 
+# ── Phase 2: POLYGLOT (Harness — for_polyglot(str) 코드 추출 검증) ──
+POLYGLOT_SCENARIOS = [
+    HarnessScenario(
+        name="typescript_function",
+        domain=OntologyDomain.POLYGLOT,
+        strategy="pipeline",
+        task=(
+            "**TypeScript** 로 두 문자열 길이의 합을 반환하는 `stringLengthSum` "
+            "camelCase 함수 하나만 작성하세요. `any` 타입 사용 금지. "
+            "코드는 ```typescript 펜스로 감싸세요."
+        ),
+        validators=[has_content],
+        expect_pass=True,
+        tags=["phase2", "polyglot", "typescript"],
+        timeout_sec=300,
+        max_iterations=2,
+        polyglot_language="typescript",
+    ),
+    HarnessScenario(
+        name="rust_function",
+        domain=OntologyDomain.POLYGLOT,
+        strategy="pipeline",
+        task=(
+            "**Rust** 로 `fn clamp_value(x: i32, lo: i32, hi: i32) -> i32` 구현 하나만 작성. "
+            "`.unwrap()` 은 필요 시에만 최소 사용(4회 이상 금지). ```rust 블록으로 출력."
+        ),
+        validators=[has_content],
+        expect_pass=True,
+        tags=["phase2", "polyglot", "rust"],
+        timeout_sec=320,
+        max_iterations=2,
+        polyglot_language="rust",
+    ),
+    HarnessScenario(
+        name="polyglot_comparison",
+        domain=OntologyDomain.POLYGLOT,
+        strategy="pipeline",
+        task=(
+            "동일한 로직(**정수 절대값**)을 각각 한 함수로 작성: "
+            "Python에는 `abs_int`(snake_case), TypeScript에는 `absInt`(camelCase), Rust에는 "
+            "`abs_int`(snake_case) 함수만 넣습니다. 출력은 세 개의 블록 "
+            "```python ```typescript ```rust 로만 구성합니다(자연어 문장 불필요)."
+        ),
+        validators=[has_content, triple_polyglot_fences],
+        expect_pass=True,
+        tags=["phase2", "polyglot", "comparison"],
+        timeout_sec=400,
+        max_iterations=2,
+        polyglot_language=None,
+    ),
+]
+
 # ── Phase 2: SVG (Harness — str 출력에 대해 for_svg 검증) ──
 SVG_SCENARIOS = [
     HarnessScenario(
@@ -632,6 +742,7 @@ ALL_SCENARIOS = (
     + BUSINESS_SCENARIOS
     + KNOWLEDGE_SCENARIOS
     + COST_SCENARIOS
+    + POLYGLOT_SCENARIOS
     + SVG_SCENARIOS
 )
 
