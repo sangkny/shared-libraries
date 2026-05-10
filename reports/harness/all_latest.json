@@ -1,0 +1,551 @@
+{
+  "timestamp": "2026-05-10T10:46:09.615187",
+  "total": 17,
+  "passed": 17,
+  "failed": 0,
+  "skipped": 0,
+  "pass_rate": 100.0,
+  "total_ms": 2321813.37,
+  "results": [
+    {
+      "scenario_name": "simple_add_function",
+      "domain": "software",
+      "strategy": "pipeline",
+      "passed": true,
+      "agent_passed": true,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "has_def_keyword",
+          "passed": true,
+          "message": "함수 정의 있음"
+        },
+        {
+          "name": "has_type_hints",
+          "passed": true,
+          "message": "타입 힌트 있음"
+        }
+      ],
+      "output": "요청하신 사양에 따라 고품질의 Python 코드를 작성했습니다. 이 코드는 `add` 함수 구현과 함께 이를 검증하는 단위 테스트 케이스를 포함합니다.\n\n```python\n\"\"\"\nAutoNoGaDa Platform Core Utility Module (Software Domain)\n------------------------------------------",
+      "latency_ms": 88808.51,
+      "iterations": 1,
+      "error": "",
+      "timestamp": "2026-05-10T10:08:57.119999"
+    },
+    {
+      "scenario_name": "bmi_calculator",
+      "domain": "software",
+      "strategy": "pipeline",
+      "passed": true,
+      "agent_passed": true,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "has_def_keyword",
+          "passed": true,
+          "message": "함수 정의 있음"
+        },
+        {
+          "name": "has_type_hints",
+          "passed": true,
+          "message": "타입 힌트 있음"
+        },
+        {
+          "name": "has_docstring",
+          "passed": true,
+          "message": "docstring 있음"
+        }
+      ],
+      "output": "As a senior software engineer, I will implement the BMI calculation function following robust engineering principles. The solution includes strong input validation using `ValueError` and comprehensive",
+      "latency_ms": 116508.11,
+      "iterations": 1,
+      "error": "",
+      "timestamp": "2026-05-10T10:10:54.606064"
+    },
+    {
+      "scenario_name": "debate_strategy",
+      "domain": "software",
+      "strategy": "debate",
+      "passed": true,
+      "agent_passed": true,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "has_def_keyword",
+          "passed": true,
+          "message": "함수 정의 있음"
+        },
+        {
+          "name": "has_type_hints",
+          "passed": true,
+          "message": "타입 힌트 있음"
+        }
+      ],
+      "output": "```python\nfrom typing import List, TypeVar, Any\n\n# Generic type variable for better type hinting flexibility across the function\nT = TypeVar('T')\n\n\ndef remove_duplicates(items: List[T]) -> List[T]:\n  ",
+      "latency_ms": 125373.55,
+      "iterations": 1,
+      "error": "",
+      "timestamp": "2026-05-10T10:13:00.956960"
+    },
+    {
+      "scenario_name": "fibonacci",
+      "domain": "software",
+      "strategy": "pipeline",
+      "passed": true,
+      "agent_passed": true,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "has_def_keyword",
+          "passed": true,
+          "message": "함수 정의 있음"
+        },
+        {
+          "name": "has_type_hints",
+          "passed": true,
+          "message": "타입 힌트 있음"
+        },
+        {
+          "name": "has_docstring",
+          "passed": true,
+          "message": "docstring 있음"
+        }
+      ],
+      "output": "```python\nimport functools\nfrom typing import Optional\n\n# ==============================================================================\n# Fibonacci Implementation for AutoNoGaDa Platform\n# Calculates",
+      "latency_ms": 219872.83,
+      "iterations": 2,
+      "error": "",
+      "timestamp": "2026-05-10T10:16:41.763927"
+    },
+    {
+      "scenario_name": "data_validator",
+      "domain": "software",
+      "strategy": "pipeline",
+      "passed": true,
+      "agent_passed": true,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "has_def_keyword",
+          "passed": true,
+          "message": "함수 정의 있음"
+        },
+        {
+          "name": "has_type_hints",
+          "passed": true,
+          "message": "타입 힌트 있음"
+        },
+        {
+          "name": "has_docstring",
+          "passed": true,
+          "message": "docstring 있음"
+        }
+      ],
+      "output": "```python\nimport re\nfrom typing import List, Tuple\n\nclass Validator:\n    \"\"\"\n    AutoNoGaDa 플랫폼을 위한 유효성 검사 서비스입니다.\n    이메일 주소와 한국 휴대폰 번호의 형식적 유효성을 정규식을 사용하여 확인합니다.\n    단일 책임 원칙(SRP)에 따라 모든 검증 로직을 이 클래",
+      "latency_ms": 214506.18,
+      "iterations": 2,
+      "error": "",
+      "timestamp": "2026-05-10T10:20:17.218880"
+    },
+    {
+      "scenario_name": "async_fetcher",
+      "domain": "software",
+      "strategy": "pipeline",
+      "passed": true,
+      "agent_passed": false,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "has_def_keyword",
+          "passed": true,
+          "message": "함수 정의 있음"
+        },
+        {
+          "name": "has_type_hints",
+          "passed": true,
+          "message": "타입 힌트 있음"
+        },
+        {
+          "name": "has_async_keyword",
+          "passed": true,
+          "message": "async 함수 정의 있음"
+        }
+      ],
+      "output": "```python\nimport asyncio\nimport aiohttp\nfrom typing import List, Dict, Any\nfrom aiohttp import ClientSession, ClientTimeout\n\n# Define the timeout duration globally or pass it as an argument.\nDEFAULT_T",
+      "latency_ms": 278529.25,
+      "iterations": 2,
+      "error": "",
+      "timestamp": "2026-05-10T10:24:56.690069"
+    },
+    {
+      "scenario_name": "generate_class",
+      "domain": "software",
+      "strategy": "pipeline",
+      "passed": true,
+      "agent_passed": true,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "has_class_keyword",
+          "passed": true,
+          "message": "class 정의 있음"
+        },
+        {
+          "name": "has_dataclass_marker",
+          "passed": true,
+          "message": "@dataclass 있음"
+        },
+        {
+          "name": "has_type_hints",
+          "passed": true,
+          "message": "타입 힌트 있음"
+        }
+      ],
+      "output": "```python\nfrom dataclasses import dataclass\n# Union type hint requires Python 3.10+ or from typing import Optional\n\n@dataclass(frozen=True)\nclass UserDTO:\n    \"\"\"\n    Data Transfer Object (DTO) repres",
+      "latency_ms": 79321.3,
+      "iterations": 1,
+      "error": "",
+      "timestamp": "2026-05-10T10:26:16.992910"
+    },
+    {
+      "scenario_name": "generate_api_endpoint",
+      "domain": "software",
+      "strategy": "pipeline",
+      "passed": true,
+      "agent_passed": false,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "has_fastapi_route",
+          "passed": true,
+          "message": "FastAPI 라우트 흔적 있음"
+        },
+        {
+          "name": "has_async_keyword",
+          "passed": true,
+          "message": "async 함수 정의 있음"
+        },
+        {
+          "name": "has_def_keyword",
+          "passed": true,
+          "message": "함수 정의 있음"
+        }
+      ],
+      "output": "```python\nimport asyncio\nfrom typing import List, Optional\nfrom fastapi import APIRouter, HTTPException, status\nfrom pydantic import BaseModel\n\n# ======================================================",
+      "latency_ms": 250229.06,
+      "iterations": 2,
+      "error": "",
+      "timestamp": "2026-05-10T10:30:28.168668"
+    },
+    {
+      "scenario_name": "fix_syntax_error",
+      "domain": "software",
+      "strategy": "pipeline",
+      "passed": true,
+      "agent_passed": true,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "has_def_keyword",
+          "passed": true,
+          "message": "함수 정의 있음"
+        },
+        {
+          "name": "syntax_valid_python",
+          "passed": true,
+          "message": "파이썬 문법 검사 통과"
+        }
+      ],
+      "output": "```python\nfrom typing import Union\n\n# Type alias for common numeric types in this context\nNumeric = Union[int, float]\n\n\ndef calculate_sum(a: Numeric, b: Numeric) -> float:\n    \"\"\"\n    두 개의 숫자 값을 더하여 합",
+      "latency_ms": 99706.98,
+      "iterations": 1,
+      "error": "",
+      "timestamp": "2026-05-10T10:32:08.862276"
+    },
+    {
+      "scenario_name": "review_complex_function",
+      "domain": "software",
+      "strategy": "pipeline",
+      "passed": true,
+      "agent_passed": true,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "has_review_indicators",
+          "passed": true,
+          "message": "리뷰 키워드: ['개선', '문제점', '권장', '버그']"
+        },
+        {
+          "name": "has_sufficient_length",
+          "passed": true,
+          "message": "충분한 길이 (1862자)"
+        }
+      ],
+      "output": "### 📝 Code Review: `f(n)`\n\n이 함수는 복잡한 상태 관리와 측면 효과(Side Effects)를 포함하고 있어 가독성과 예측 가능성이 매우 낮습니다. 전반적으로 **개선**이 필요하며, 특히 내부 로직의 분리 및 명확한 변수 관리가 시급합니다.\n\n---\n\n#### 🔍 구조적 분석 및 잠재 버그 (Potential Bugs & Comple",
+      "latency_ms": 95949.89,
+      "iterations": 1,
+      "error": "",
+      "timestamp": "2026-05-10T10:33:45.787090"
+    },
+    {
+      "scenario_name": "debate_architecture",
+      "domain": "software",
+      "strategy": "debate",
+      "passed": true,
+      "agent_passed": true,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "has_architecture_keywords",
+          "passed": true,
+          "message": "아키 키워드: ['monolith', 'microservice', '모놀리', '마이크로']"
+        },
+        {
+          "name": "has_sufficient_length",
+          "passed": true,
+          "message": "충분한 길이 (3205자)"
+        }
+      ],
+      "output": "```python\nfrom typing import Dict, List, Tuple\nimport textwrap\n\nclass ArchitectureAdvisor:\n    \"\"\"\n    초기 소규모 스타트업(5인 이하)의 MVP 백엔드 아키텍처를 분석하고 권장하는 시니어 엔지니어링 가이드.\n    속도와 단순성을 최우선으로 고려하여 모듈형 모놀리식 (Modu",
+      "latency_ms": 123813.17,
+      "iterations": 1,
+      "error": "",
+      "timestamp": "2026-05-10T10:35:50.574821"
+    },
+    {
+      "scenario_name": "eye_exam_report",
+      "domain": "medical",
+      "strategy": "consensus",
+      "passed": true,
+      "agent_passed": true,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "no_pii_data",
+          "passed": true,
+          "message": "PII 없음"
+        }
+      ],
+      "output": "## 🩺 안과 의료 데이터 분석 보고서 (MEDI-IOT EyeCare Platform)\n\n**주의 사항:** 본 보고서는 주어진 임상 시나리오를 바탕으로 표준화된 구조와 최신 진료 지침을 적용하여 생성된 예시 결과물입니다. 실제 환자의 데이터를 처리할 경우, 모든 원본 PHI/PII는 철저히 비식별화됩니다.\n\n***\n\n### 🔍 **진단 보고서 개요**\n",
+      "latency_ms": 113400.68,
+      "iterations": 1,
+      "error": "",
+      "timestamp": "2026-05-10T10:37:44.950058"
+    },
+    {
+      "scenario_name": "no_pii_check",
+      "domain": "medical",
+      "strategy": "pipeline",
+      "passed": true,
+      "agent_passed": true,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "no_pii_data",
+          "passed": true,
+          "message": "PII 없음"
+        }
+      ],
+      "output": "# 👁️ MEDI-IOT EyeCare 플랫폼 의료 AI 분석 보고서\n## OCT 검사 결과 요약 및 임상 소견 (Macular Degeneration)\n\n---\n\n### 🛡️ 데이터 처리 보안 및 개인정보 보호 확인\n본 보고서는 **최고 수준의 데이터 익명화(De-identification)** 절차를 거쳐 작성되었습니다. 환자 이름, 주민등록번호, 생년",
+      "latency_ms": 114570.03,
+      "iterations": 1,
+      "error": "",
+      "timestamp": "2026-05-10T10:39:40.500513"
+    },
+    {
+      "scenario_name": "glaucoma_report",
+      "domain": "medical",
+      "strategy": "consensus",
+      "passed": true,
+      "agent_passed": true,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "no_pii_data",
+          "passed": true,
+          "message": "PII 없음"
+        },
+        {
+          "name": "has_medical_term",
+          "passed": true,
+          "message": "의학 용어 있음: ['녹내장', 'glaucoma', '황반']"
+        },
+        {
+          "name": "has_sufficient_length",
+          "passed": true,
+          "message": "충분한 길이 (2425자)"
+        }
+      ],
+      "output": "## 📊 MEDI-IOT EyeCare 플랫폼 의료 보고서 초안\n**(Open-Angle Glaucoma Visual Field Test Summary)**\n\n---\n\n### **[주의 사항 및 보안 고지]**\n*   본 보고서는 가상의 임상 데이터를 기반으로 작성되었으며, 실제 환자의 진단이나 치료에 사용될 수 없습니다.\n*   모든 개인식별정보(PII)",
+      "latency_ms": 83043.21,
+      "iterations": 1,
+      "error": "",
+      "timestamp": "2026-05-10T10:41:04.526821"
+    },
+    {
+      "scenario_name": "vision_correction",
+      "domain": "medical",
+      "strategy": "pipeline",
+      "passed": true,
+      "agent_passed": false,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "no_pii_data",
+          "passed": true,
+          "message": "PII 없음"
+        },
+        {
+          "name": "has_medical_term",
+          "passed": true,
+          "message": "의학 용어 있음: ['시력', 'iop', '각막']"
+        },
+        {
+          "name": "has_sufficient_length",
+          "passed": true,
+          "message": "충분한 길이 (2283자)"
+        }
+      ],
+      "output": "# MEDI-IOT EyeCare 플랫폼 기반: 라식(LASIK) 수술 전 기본 검사 체크리스트 및 진단 소견 보고서\n\n**[주의]** 본 보고서는 가상의 표준화된 임상 검진 데이터와 의학적 지침에 근거하여 작성되었으며, 실제 환자 식별 정보(PII)는 포함되어 있지 않습니다. 모든 항목은 수술의 안전성과 성공률을 극대화하기 위한 필수적인 평가 기준입니다.",
+      "latency_ms": 80368.08,
+      "iterations": 1,
+      "error": "",
+      "timestamp": "2026-05-10T10:42:25.876898"
+    },
+    {
+      "scenario_name": "oct_analysis",
+      "domain": "medical",
+      "strategy": "consensus",
+      "passed": true,
+      "agent_passed": false,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "no_pii_data",
+          "passed": true,
+          "message": "PII 없음"
+        },
+        {
+          "name": "has_medical_term",
+          "passed": true,
+          "message": "의학 용어 있음: ['황반', 'macula', '망막']"
+        },
+        {
+          "name": "has_sufficient_length",
+          "passed": true,
+          "message": "충분한 길이 (2370자)"
+        }
+      ],
+      "output": "## 🔬 MEDI-IOT EyeCare 플랫폼 기반 의료 데이터 분석 보고서\n**(Macular Hole, H35.34)**\n\n본 보고서는 빛간섭단층촬영(OCT) 검사를 통해 황반원공(Macular Hole, MH)이 확인된 임상 사례에 대한 구조적 소견 해석 및 표준화된 치료 가이드라인을 제공합니다. 모든 개인식별정보는 제거되었으며, 분석은 오직 ICD-",
+      "latency_ms": 129685.82,
+      "iterations": 1,
+      "error": "",
+      "timestamp": "2026-05-10T10:44:36.539231"
+    },
+    {
+      "scenario_name": "contract_summary",
+      "domain": "business",
+      "strategy": "debate",
+      "passed": true,
+      "agent_passed": true,
+      "ontology_passed": true,
+      "validator_results": [
+        {
+          "name": "has_content",
+          "passed": true,
+          "message": "결과물이 있음"
+        },
+        {
+          "name": "has_business_content",
+          "passed": true,
+          "message": "비즈니스 내용 있음 (2904자)"
+        }
+      ],
+      "output": "# 📋 소프트웨어 개발 용역 계약 검토 및 자동화 프로세스 설계 가이드라인\n**(CoOps 플랫폼 기반 통합 업무 자동화 워크플로우)**\n\n## I. 개요 및 목적: 리스크 최소화를 위한 구조적 접근\n\n본 문서는 CoOps(Collaborative Operations) 플랫폼을 활용하여 소프트웨어 개발 용역 계약의 법률적, 기술적, 재무적 리스크를 선제적으",
+      "latency_ms": 92092.85,
+      "iterations": 1,
+      "error": "",
+      "timestamp": "2026-05-10T10:46:09.614561"
+    }
+  ]
+}

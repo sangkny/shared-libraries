@@ -112,12 +112,12 @@ async def _cmd_all(args: argparse.Namespace) -> int:
     report = await runner.run_all()
     report.print_report()
 
-    if args.save:
-        reporter  = HarnessReporter(output_dir=args.output_dir)
-        md_path   = reporter.save_markdown(report, "all_latest.md")
-        json_path = reporter.save_json(report, "all_latest.json")
-        print(f"  리포트 저장됨: {md_path}")
-        print(f"               {json_path}")
+    # Phase 1 회귀 추적: 전체 스위트는 매번 `all_latest.*` 를 갱신한다.
+    reporter = HarnessReporter(output_dir=args.output_dir)
+    md_path = reporter.save_markdown(report, "all_latest.md")
+    json_path = reporter.save_json(report, "all_latest.json")
+    print(f"  리포트 저장됨: {md_path}")
+    print(f"               {json_path}")
 
     return _exit_code(report.pass_rate, args.min_pass_rate)
 
