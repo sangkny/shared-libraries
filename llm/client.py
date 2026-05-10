@@ -4,7 +4,7 @@ LLMClient — Provider 추상화 통합 클라이언트
 환경변수 LLM_PROVIDER 하나로 Provider 전환
 자동 Fallback: 실패 시 LOCAL로 재시도
 """
-import os, logging, asyncio
+import os, logging, asyncio, time
 from typing import Optional
 from .base import (
     BaseProvider, LLMProvider, ModelRole,
@@ -12,6 +12,26 @@ from .base import (
 )
 
 log = logging.getLogger("llm.client")
+
+
+def _safe_record_chat_metrics(response: LLMResponse) -> None:
+    try:
+        from observability import metrics_collector
+
+        metrics_collector.record_chat_response(response)
+    except Exception:
+        pass
+
+
+def _safe_record_embed_metrics(response: EmbedResponse, latency_ms: float, source_text: str) -> None:
+    try:
+        from observability import metrics_collector
+
+        pv = getattr(response.provider, "value", None) or str(response.provider)
+        est = max(1, len(source_text) // 4)
+        metrics_collector.record_embed_call(pv, latency_ms, token_estimate=est)
+    except Exception:
+        pass
 
 
 # ── Provider 팩토리 ──────────────────────────────────────
@@ -156,16 +176,22 @@ class LLMClient:
         텍스트 임베딩 요청
         LLM_EMBED_PROVIDER 환경변수로 임베딩 전용 Provider 선택 가능
         """
+        t0 = time.perf_counter()
         try:
-            return await self._embed_provider.embed(text)
+            out = await self._embed_provider.embed(text)
         except NotImplementedError:
-            # 임베딩 미지원 Provider → LOCAL fallback
-            log.warning(f"{self._embed_provider.provider_name.value}은 임베딩 미지원 → LOCAL fallback")
+            log.warning(
+                "%s 은 임베딩 미지원 → LOCAL fallback",
+                self._embed_provider.provider_name.value,
+            )
             from .providers.local import LocalProvider
-            return await LocalProvider().embed(text)
+            out = await LocalProvider().embed(text)
         except Exception as e:
-            log.error(f"임베딩 오류: {e}")
+            log.error("임베딩 오류: %s", e)
             raise
+        ms = (time.perf_counter() - t0) * 1000.0
+        _safe_record_embed_metrics(out, ms, text)
+        return out
 
     def health_check_all(self) -> dict:
         """전체 Provider 상태 확인"""
@@ -186,7 +212,9 @@ class LLMClient:
     async def _chat_with_fallback(self, request: LLMRequest) -> LLMResponse:
         """Fallback 포함 채팅 실행"""
         try:
-            return await self._provider.chat(request)
+            res = await self._provider.chat(request)
+            _safe_record_chat_metrics(res)
+            return res
         except Exception as e:
             if self._fallback:
                 log.warning(
@@ -195,6 +223,7 @@ class LLMClient:
                 try:
                     res = await self._fallback.chat(request)
                     res.metadata["fallback_reason"] = str(e)
+                    _safe_record_chat_metrics(res)
                     return res
                 except Exception as fe:
                     log.error(f"Fallback도 실패: {fe}")

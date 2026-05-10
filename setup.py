@@ -9,6 +9,7 @@ setup(
         "openai>=1.30.0",
         "httpx>=0.27.0",
         "redis>=5.0.1",
+        "fastapi>=0.115.6",
         "python-dotenv>=1.0.0",
     ],
     extras_require={
