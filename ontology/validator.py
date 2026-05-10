@@ -104,6 +104,10 @@ class SemanticValidator(BaseSubValidator):
             await self._validate_software_semantic(data, semantic_rules, result)
         elif self.domain == OntologyDomain.BUSINESS:
             await self._validate_business_semantic(data, semantic_rules, result)
+        elif self.domain == OntologyDomain.SVG:
+            await self._validate_svg_semantic(data, semantic_rules, result)
+        elif self.domain == OntologyDomain.POLYGLOT:
+            await self._validate_polyglot_semantic(data, semantic_rules, result)
 
         return result
 
@@ -176,6 +180,143 @@ class SemanticValidator(BaseSubValidator):
                     f"유효하지 않은 프로세스 상태: '{val}'",
                     field=field, value=val,
                     suggestion=f"허용 상태: {', '.join(allowed_statuses)}"
+                ))
+
+    async def _validate_svg_semantic(self, data: dict, rules: dict,
+                                     result: ValidationResult) -> None:
+        """SVG XML — XSS·외부 URL·요소 수·medical_report PII"""
+        import re
+
+        if not isinstance(data, dict):
+            return
+
+        field = rules.get("svg_content_field", "svg_content")
+        raw = data.get(field, "")
+        content = raw if isinstance(raw, str) else str(raw)
+        lower = content.lower()
+
+        if "<script" in lower or "javascript:" in lower:
+            result.add(self._error(
+                "SVG-SEM-XSS",
+                "<script> 또는 javascript: URL은 허용되지 않습니다 (XSS 방지).",
+                field=field,
+                suggestion="script 태그를 제거하고 정적 SVG만 사용하세요.",
+            ))
+
+        if re.search(r'(?:xlink:href|href)\s*=\s*["\']?\s*https?://', content, re.I):
+            result.add(self._error(
+                "SVG-SEM-URL",
+                "SVG에서 외부 http(s) URL 참조는 허용되지 않습니다.",
+                field=field,
+                suggestion="외부 리소스 대신 인라인 path/symbol을 사용하세요.",
+            ))
+
+        open_tags = len(re.findall(r"<[^/!?][^>]*>", content))
+        max_el = int(rules.get("svg_max_elements", 1000))
+        if open_tags > max_el:
+            result.add(self._error(
+                "SVG-SEM-EL",
+                f"SVG 요소(태그) 수가 한도를 초과했습니다: {open_tags} (최대 {max_el})",
+                field=field,
+                value=open_tags,
+            ))
+
+        svg_type = data.get("svg_type", "")
+        if svg_type == "medical_report" and content:
+            if re.search(
+                r"\b\d{6}-[1-4]\d{6}\b",
+                content,
+            ) or re.search(r"\b01[016789]-\d{3,4}-\d{4}\b", content):
+                result.add(self._error(
+                    "SVG-SEM-PII",
+                    "medical_report SVG에 주민번호·전화번호 형태의 PII 패턴이 감지되었습니다.",
+                    field=field,
+                    suggestion="PII를 제거하거나 마스킹하세요.",
+                ))
+            pii_kw = ("주민", "resident", "ssn", "환자명", "환자 이름")
+            if any(k.lower() in lower for k in pii_kw):
+                result.add(self._warning(
+                    "SVG-SEM-PII-HINT",
+                    "medical_report에 PII로 해석될 수 있는 키워드가 포함되어 있습니다.",
+                    field=field,
+                ))
+
+    async def _validate_polyglot_semantic(self, data: dict, rules: dict,
+                                          result: ValidationResult) -> None:
+        """다중 언어 코드 스니펫 검증"""
+        import re
+
+        if not isinstance(data, dict):
+            return
+
+        lang = str(rules.get("polyglot_language", "python")).lower().strip()
+        code_field = rules.get("code_field", "code")
+        raw = data.get(code_field, "")
+        code = raw if isinstance(raw, str) else str(raw)
+        if not code.strip():
+            return
+
+        if lang == "python":
+            if re.search(r"\beval\s*\(", code) or re.search(r"\bexec\s*\(", code):
+                result.add(self._error(
+                    "POLY-SEM-001",
+                    "Python 코드에서 eval()/exec() 사용은 금지됩니다.",
+                    field=code_field,
+                ))
+            if re.search(r"os\.system\s*\(", code):
+                result.add(self._error(
+                    "POLY-SEM-002",
+                    "os.system() 호출은 금지됩니다.",
+                    field=code_field,
+                ))
+            fn = data.get("function_name")
+            if isinstance(fn, str) and fn and not self._is_snake_case(fn):
+                result.add(self._warning(
+                    "POLY-SEM-003",
+                    f"Python 함수명은 snake_case를 권장합니다: '{fn}'",
+                    field="function_name", value=fn,
+                ))
+            if "->" not in code and not re.search(
+                r":\s*(?:int|str|float|bool|list|dict|tuple|Optional|None)",
+                code,
+            ):
+                result.add(self._warning(
+                    "POLY-SEM-004",
+                    "타입 힌트(매개변수 또는 -> 반환) 포함을 권장합니다.",
+                    field=code_field,
+                ))
+
+        elif lang == "typescript":
+            fn = data.get("function_name")
+            if isinstance(fn, str) and fn:
+                if not re.match(r"^[a-z][a-zA-Z0-9]*$", fn):
+                    result.add(self._warning(
+                        "POLY-SEM-010",
+                        "TypeScript 함수명은 camelCase를 권장합니다.",
+                        field="function_name", value=fn,
+                    ))
+            if re.search(r":\s*any\b", code) or re.search(r"\bas\s+any\b", code):
+                result.add(self._error(
+                    "POLY-SEM-011",
+                    "TypeScript 코드에서 any 타입 사용은 금지입니다.",
+                    field=code_field,
+                ))
+
+        elif lang == "rust":
+            fn = data.get("function_name")
+            if isinstance(fn, str) and fn and not self._is_snake_case(fn):
+                result.add(self._warning(
+                    "POLY-SEM-020",
+                    f"Rust 함수명은 snake_case를 권장합니다: '{fn}'",
+                    field="function_name", value=fn,
+                ))
+            unwrap_n = len(re.findall(r"\.unwrap\s*\(\s*\)", code))
+            if unwrap_n > 3:
+                result.add(self._error(
+                    "POLY-SEM-021",
+                    f"unwrap()이 함수당 최대 3개까지 허용됩니다 (현재 {unwrap_n}개).",
+                    field=code_field,
+                    value=unwrap_n,
                 ))
 
     @staticmethod
@@ -268,8 +409,16 @@ class StructuralValidator(BaseSubValidator):
         return result
 
     def _domain_prefix(self) -> str:
-        return {"medical": "MED", "software": "SW",
-                "business": "BIZ", "general": "GEN"}.get(self.domain.value, "GEN")
+        return {
+            "medical": "MED",
+            "software": "SW",
+            "business": "BIZ",
+            "general": "GEN",
+            "svg": "SVG",
+            "polyglot": "POLY",
+            "knowledge": "KNOW",
+            "cost": "COST",
+        }.get(self.domain.value, "GEN")
 
     @staticmethod
     def _get_nested(data: Any, field: str) -> Any:
@@ -392,6 +541,45 @@ class ConstraintValidator(BaseSubValidator):
                     suggestion="올바른 형식: YYYY-MM-DD (예: 2026-05-08)"
                 ))
 
+        byte_rules = constraint_rules.get("byte_lengths", {})
+        for field, spec in byte_rules.items():
+            val = self._get_val(data, field)
+            if val is None:
+                continue
+            if not isinstance(val, str):
+                continue
+            b_len = len(val.encode("utf-8"))
+            max_b = spec.get("max")
+            min_b = spec.get("min")
+            if min_b is not None and b_len < min_b:
+                result.add(self._error(
+                    "CON-007",
+                    f"바이트 길이가 너무 짧습니다: {field} ({b_len}B, 최소 {min_b}B)",
+                    field=field, value=b_len,
+                ))
+            if max_b is not None and b_len > max_b:
+                result.add(self._error(
+                    "CON-008",
+                    f"바이트 길이가 한도를 초과했습니다: {field} ({b_len}B, 최대 {max_b}B)",
+                    field=field, value=b_len,
+                    suggestion="SVG/문서 크기를 줄이세요.",
+                ))
+
+        list_len_rules = constraint_rules.get("list_lengths", {})
+        for field, spec in list_len_rules.items():
+            val = self._get_val(data, field)
+            if val is None:
+                continue
+            if not isinstance(val, list):
+                continue
+            expect = spec.get("len") or spec.get("length")
+            if expect is not None and len(val) != int(expect):
+                result.add(self._error(
+                    "CON-009",
+                    f"리스트 길이가 올바르지 않습니다: {field} (기대 {expect}, 실제 {len(val)})",
+                    field=field, value=len(val),
+                ))
+
         return result
 
     @staticmethod
@@ -461,7 +649,16 @@ class DependencyValidator(BaseSubValidator):
 
             if triggered:
                 required_val = self._get_val(data, required_field)
-                if required_val is None or required_val == "":
+                truthy = rule.get("then_require_truthy", False)
+                if truthy:
+                    if required_val is not True:
+                        result.add(self._error(
+                            "DEP-001",
+                            message or f"'{required_field}'은(는) True여야 합니다.",
+                            field=required_field,
+                            suggestion=f"'{required_field}'를 True로 설정하세요.",
+                        ))
+                elif required_val is None or required_val == "":
                     result.add(self._error(
                         "DEP-001",
                         message or (
@@ -469,7 +666,7 @@ class DependencyValidator(BaseSubValidator):
                             f"'{required_field}'도 필수입니다."
                         ),
                         field=required_field,
-                        suggestion=f"'{required_field}' 필드를 입력하세요."
+                        suggestion=f"'{required_field}' 필드를 입력하세요.",
                     ))
 
         # ── if A exists → B must NOT exist ────────────────
@@ -507,7 +704,59 @@ class DependencyValidator(BaseSubValidator):
                         suggestion=f"올바른 순서: {expected_order}"
                     ))
 
+        cost_pol = dep_rules.get("cost_policy")
+        if isinstance(cost_pol, dict) and cost_pol.get("enabled") and isinstance(data, dict):
+            self._validate_cost_policy(data, cost_pol, result)
+
         return result
+
+    def _validate_cost_policy(
+        self,
+        data: dict,
+        policy: dict,
+        result: ValidationResult,
+    ) -> None:
+        """complexity=critical → HEAVY/CONSENSUS, 극소 예산 → local만"""
+        cmpl_f = policy.get("complexity_field", "complexity")
+        model_f = policy.get("model_field", "selected_model")
+        budget_f = policy.get("budget_field", "budget_usd")
+        micro = float(policy.get("micro_budget_ceiling", 0.01))
+
+        model_val = data.get(model_f, "")
+        mod_str = str(model_val) if model_val is not None else ""
+
+        cmpl = str(data.get(cmpl_f, "")).lower().strip()
+        if cmpl == "critical":
+            markers = tuple(m.upper() for m in policy.get("heavy_markers", ("HEAVY", "CONSENSUS")))
+            if not any(m in mod_str.upper() for m in markers):
+                result.add(self._error(
+                    "COST-DEP-001",
+                    "complexity=critical 인 작업은 HEAVY 또는 CONSENSUS 라우팅 모델이어야 합니다.",
+                    field=model_f, value=model_val,
+                    suggestion="selected_model에 HEAVY 또는 CONSENSUS 식별자를 포함하세요.",
+                ))
+
+        bud = data.get(budget_f)
+        try:
+            budget_ok = bud is not None and float(bud) < micro
+        except (TypeError, ValueError):
+            budget_ok = False
+
+        local_hints = tuple(
+            h.lower() for h in policy.get(
+                "local_hints",
+                ("local", "lm-studio", "gemma-4-e4b"),
+            )
+        )
+        if budget_ok:
+            mlow = mod_str.lower()
+            if not any(h in mlow for h in local_hints):
+                result.add(self._error(
+                    "COST-DEP-002",
+                    f"budget_usd < {micro} 일 때는 로컬(low-cost) 모델만 허용됩니다.",
+                    field=model_f, value=model_val,
+                    suggestion="LOCAL_FAST 또는 로컬 모델 id를 선택하세요.",
+                ))
 
     @staticmethod
     def _get_val(data: Any, field: str) -> Any:
@@ -645,7 +894,33 @@ class OntologyValidator:
         return cls(domain=OntologyDomain.BUSINESS,
                    rules=cls._load_default_rules(OntologyDomain.BUSINESS))
 
-    # ── 기본 도메인 규칙 ──────────────────────────────────
+    @classmethod
+    def for_svg(cls) -> "OntologyValidator":
+        """SVG Generator — XSS/용량/PII (medical_report)"""
+        return cls(domain=OntologyDomain.SVG,
+                   rules=cls._default_rules_svg())
+
+    @classmethod
+    def for_polyglot(cls, language: str) -> "OntologyValidator":
+        """다중 언어 코드 스니펫 — language: python | typescript | rust"""
+        lang = language.strip().lower()
+        allowed = frozenset({"python", "typescript", "rust"})
+        if lang not in allowed:
+            raise ValueError(f"unsupported polyglot language: {language!r} (expected {sorted(allowed)})")
+        return cls(domain=OntologyDomain.POLYGLOT,
+                   rules=cls._default_rules_polyglot(lang))
+
+    @classmethod
+    def for_knowledge(cls) -> "OntologyValidator":
+        """RAG / 지식 인덱싱 메타데이터"""
+        return cls(domain=OntologyDomain.KNOWLEDGE,
+                   rules=cls._default_rules_knowledge())
+
+    @classmethod
+    def for_cost(cls) -> "OntologyValidator":
+        """비용·모델 라우팅"""
+        return cls(domain=OntologyDomain.COST,
+                   rules=cls._default_rules_cost())
 
     @staticmethod
     def _load_default_rules(domain: OntologyDomain) -> dict:
@@ -837,10 +1112,161 @@ class OntologyValidator:
                 },
             }
 
+        elif domain == OntologyDomain.SVG:
+            return OntologyValidator._default_rules_svg()
+
+        elif domain == OntologyDomain.POLYGLOT:
+            return OntologyValidator._default_rules_polyglot("python")
+
+        elif domain == OntologyDomain.KNOWLEDGE:
+            return OntologyValidator._default_rules_knowledge()
+
+        elif domain == OntologyDomain.COST:
+            return OntologyValidator._default_rules_cost()
+
         # GENERAL — 최소 규칙
         return {
             "semantic":     {},
             "structural":   {"required_fields": []},
             "constraints":  {},
             "dependencies": {},
+        }
+
+    @staticmethod
+    def _default_rules_svg() -> dict:
+        return {
+            "semantic": {
+                "svg_content_field": "svg_content",
+                "svg_max_elements": 1000,
+            },
+            "structural": {
+                "required_fields": ["svg_content", "svg_type"],
+                "field_types": {
+                    "svg_content": "str",
+                    "svg_type":    "str",
+                    "no_pii":      "bool",
+                },
+            },
+            "constraints": {
+                "enums": {
+                    "svg_type": [
+                        "flowchart", "architecture", "sequence", "er_diagram",
+                        "medical_report", "business_process",
+                    ],
+                },
+                "byte_lengths": {
+                    "svg_content": {"max": 512000},
+                },
+            },
+            "dependencies": {
+                "requires": [
+                    {
+                        "if_field": "svg_type",
+                        "has_value": "medical_report",
+                        "then_require": "no_pii",
+                        "then_require_truthy": True,
+                        "message": "svg_type=medical_report일 때 no_pii=true가 필수입니다.",
+                    },
+                ],
+            },
+        }
+
+    @staticmethod
+    def _default_rules_polyglot(language: str) -> dict:
+        return {
+            "semantic": {
+                "polyglot_language": language,
+                "code_field":        "code",
+            },
+            "structural": {
+                "required_fields": ["code"],
+                "field_types": {
+                    "code":          "str",
+                    "function_name": "str",
+                },
+            },
+            "constraints": {
+                "lengths": {
+                    "code": {"max": 200_000},
+                },
+            },
+            "dependencies": {},
+        }
+
+    @staticmethod
+    def _default_rules_knowledge() -> dict:
+        return {
+            "semantic": {},
+            "structural": {
+                "required_fields": ["task", "language", "result", "success"],
+                "field_types": {
+                    "task":     "str",
+                    "language": "str",
+                    "result":   "str",
+                    "success":  "bool",
+                },
+            },
+            "constraints": {
+                "lengths": {
+                    "task":   {"min": 10, "max": 500},
+                    "result": {"max": 10_000},
+                },
+                "enums": {
+                    "language": ["python", "typescript", "rust"],
+                },
+                "list_lengths": {
+                    "embedding": {"len": 768},
+                },
+            },
+            "dependencies": {
+                "requires": [
+                    {
+                        "if_field": "success",
+                        "has_value": False,
+                        "then_require": "error_message",
+                        "message": "success=false일 때 error_message가 필수입니다.",
+                    },
+                ],
+            },
+        }
+
+    @staticmethod
+    def _default_rules_cost() -> dict:
+        return {
+            "semantic": {},
+            "structural": {
+                "required_fields": [
+                    "task", "complexity", "selected_model", "estimated_tokens",
+                ],
+                "field_types": {
+                    "task":              "str",
+                    "complexity":        "str",
+                    "selected_model":    "str",
+                    "estimated_tokens":  "int",
+                },
+            },
+            "constraints": {
+                "ranges": {
+                    "estimated_tokens": {"min": 1, "max": 100_000_000},
+                    "budget_usd":       {"min": 0, "max": 1e12},
+                    "actual_cost_usd": {"min": 0, "max": 1e12},
+                },
+                "enums": {
+                    "complexity": ["simple", "medium", "complex", "critical"],
+                },
+            },
+            "dependencies": {
+                "requires": [],
+                "cost_policy": {
+                    "enabled": True,
+                    "heavy_markers": ("HEAVY", "CONSENSUS"),
+                    "micro_budget_ceiling": 0.01,
+                    "local_hints": (
+                        "local",
+                        "lm-studio",
+                        "gemma-4-e4b",
+                        "LOCAL_FAST",
+                    ),
+                },
+            },
         }

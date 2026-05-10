@@ -14,6 +14,11 @@ class OntologyDomain(Enum):
     SOFTWARE = "software"  # AutoNoGaDa — 코드 품질, 함수명, 복잡도
     BUSINESS = "business"  # CoOps     — 프로세스, 계약, 승인 흐름
     GENERAL  = "general"   # 공통 — 도메인 무관 검증
+    # Phase 2 — AutoNoGaDa 확장 (PHASE2_ONTOLOGY_DESIGN.md)
+    SVG = "svg"             # SVG 생성 · 시각화 · XSS/용량
+    POLYGLOT = "polyglot"   # 다중 언어 코드 일관성
+    KNOWLEDGE = "knowledge"  # RAG · 태스크 임베딩 스키마
+    COST = "cost"           # LLM 라우팅 · 예산
 
 
 # ── 검증기 종류 ───────────────────────────────────────────

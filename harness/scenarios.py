@@ -153,6 +153,31 @@ def has_architecture_keywords(output: Any) -> tuple[bool, str]:
     ok = len(hit) >= 1
     return ok, f"아키 키워드: {hit[:4]}" if ok else "아키텍처 키워드 부족"
 
+
+def has_knowledge_keywords(output: Any) -> tuple[bool, str]:
+    """RAG·임베딩·768차원 등 지식 도메인 키워드"""
+    t = str(output).lower()
+    keys = (
+        "embedding", "vector", "768", "rag", "retrieval", "index",
+        "similarity", "chunk", "search",
+    )
+    hit = [k for k in keys if k in t]
+    ok = len(hit) >= 2
+    return ok, f"지식 키워드: {hit[:6]}" if ok else "지식/RAG 키워드 부족"
+
+
+def has_cost_keywords(output: Any) -> tuple[bool, str]:
+    """예산·토큰·HEAVY/local 라우팅 등 비용 도메인 키워드"""
+    t = str(output).lower()
+    keys = (
+        "budget", "token", "cost", "heavy", "local", "routing",
+        "usd", "model", "complexity",
+    )
+    hit = [k for k in keys if k in t]
+    ok = len(hit) >= 2
+    return ok, f"비용 키워드: {hit[:6]}" if ok else "비용/라우팅 키워드 부족"
+
+
 def has_medical_term(output: Any) -> tuple[bool, str]:
     """의학 용어(ICD 코드 또는 안과 용어) 포함 여부"""
     text = str(output).lower()
@@ -442,8 +467,81 @@ BUSINESS_SCENARIOS = [
     ),
 ]
 
+# ── Phase 2: KNOWLEDGE / COST (OntologyDomain 확장) ────────
+KNOWLEDGE_SCENARIOS = [
+    HarnessScenario(
+        name="knowledge_embedding_schema",
+        domain=OntologyDomain.KNOWLEDGE,
+        strategy="pipeline",
+        task=(
+            "문서 검색용 RAG 파이프라인을 한국어로 설명하세요. "
+            "768차원 embedding·vector 인덱싱·유사도 검색 개념을 본문에 포함하고, "
+            "PII는 넣지 마세요."
+        ),
+        validators=[has_content, has_knowledge_keywords, has_sufficient_length],
+        expect_pass=True,
+        tags=["phase2", "knowledge", "rag", "embedding"],
+        timeout_sec=280,
+        max_iterations=1,
+    ),
+    HarnessScenario(
+        name="knowledge_task_indexing",
+        domain=OntologyDomain.KNOWLEDGE,
+        strategy="pipeline",
+        task=(
+            "코드베이스 검색 에이전트용 'task' 메타데이터(어느 저장소/브랜치인지)와 "
+            "chunking·retrieval·768 차원 임베딩 전략을 요약하세요. "
+            "768, embedding, RAG 단어를 반드시 포함하세요."
+        ),
+        validators=[has_content, has_knowledge_keywords],
+        expect_pass=True,
+        tags=["phase2", "knowledge", "indexing"],
+        timeout_sec=300,
+        max_iterations=1,
+    ),
+]
+
+COST_SCENARIOS = [
+    HarnessScenario(
+        name="cost_routing_heavy_budget",
+        domain=OntologyDomain.COST,
+        strategy="pipeline",
+        task=(
+            "복잡도가 critical일 때 HEAVY 또는 CONSENSUS 모델을 쓰는 규칙과, "
+            "budget_usd가 극소($0.01 미만)일 때 local/fast 모델만 쓰는 라우팅 정책을 "
+            "한국어로 간단히 서술하세요. budget, token, HEAVY, local 단어를 포함하세요."
+        ),
+        validators=[has_content, has_cost_keywords, has_sufficient_length],
+        expect_pass=True,
+        tags=["phase2", "cost", "routing"],
+        timeout_sec=260,
+        max_iterations=1,
+    ),
+    HarnessScenario(
+        name="cost_micro_budget_policy",
+        domain=OntologyDomain.COST,
+        strategy="debate",
+        task=(
+            "예산이 $0.005 수준일 때 클라우드 API 대신 로컬(LM Studio) 모델만 쓰는 것이 "
+            "합리적인지 토론하세요. 비용·토큰·지연 시간을 언급하고 "
+            "budget와 local 키워드를 본문에 넣으세요."
+        ),
+        validators=[has_content, has_cost_keywords],
+        expect_pass=True,
+        tags=["phase2", "cost", "debate", "local"],
+        timeout_sec=340,
+        max_iterations=2,
+    ),
+]
+
 # ── 전체 시나리오 모음 ─────────────────────────────────────
-ALL_SCENARIOS = SOFTWARE_SCENARIOS + MEDICAL_SCENARIOS + BUSINESS_SCENARIOS
+ALL_SCENARIOS = (
+    SOFTWARE_SCENARIOS
+    + MEDICAL_SCENARIOS
+    + BUSINESS_SCENARIOS
+    + KNOWLEDGE_SCENARIOS
+    + COST_SCENARIOS
+)
 
 # ── 스모크 테스트 (빠른 검증용) ───────────────────────────
 SMOKE_SCENARIOS = [s for s in ALL_SCENARIOS if "smoke" in s.tags]
