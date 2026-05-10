@@ -1071,6 +1071,8 @@ class OntologyValidator:
                         "contract_id":  "str",
                         "amount":       "float",
                         "requester_id": "str",
+                        "risk_level":   "str",
+                        "approver_id":  "str",
                     },
                     "field_formats": {
                         "contract_id":   r"^CON-\d{8}$",   # CON-20260508
@@ -1087,6 +1089,9 @@ class OntologyValidator:
                     "enums": {
                         "currency":  ["KRW", "USD", "EUR", "JPY"],
                         "priority":  ["low", "normal", "high", "critical"],
+                        "risk_level": [
+                            "low", "medium", "high", "critical",
+                        ],
                     },
                 },
                 "dependencies": {
@@ -1106,6 +1111,18 @@ class OntologyValidator:
                             "if_field":    "refund_request",
                             "then_require": "original_contract_id",
                             "message":     "환불 요청 시 원계약 ID가 필수입니다.",
+                        },
+                        {
+                            "if_field":    "risk_level",
+                            "has_value":   "high",
+                            "then_require": "approver_id",
+                            "message":     "위험도 high이면 승인자 ID가 필수입니다.",
+                        },
+                        {
+                            "if_field":    "risk_level",
+                            "has_value":   "critical",
+                            "then_require": "approver_id",
+                            "message":     "위험도 critical이면 승인자 ID가 필수입니다.",
                         },
                     ],
                     "excludes": [],

@@ -531,6 +531,23 @@ MEDICAL_SCENARIOS = [
         timeout_sec=300,
         max_iterations=1,
     ),
+    HarnessScenario(
+        name="vision_medical_report",
+        domain=OntologyDomain.MEDICAL,
+        strategy="consensus",
+        task=(
+            "안저 이미지 소견: 후극부 점상 출혈, 황반부 경성삼출물 관찰. "
+            "ICD-10 진단 코드와 치료 권고사항을 포함한 의료 보고서를 작성하세요. "
+            "개인정보는 절대 포함하지 마세요."
+        ),
+        validators=[
+            has_content, no_pii_data, has_medical_term, has_sufficient_length,
+        ],
+        expect_pass=True,
+        tags=["medical", "vision", "icd10", "consensus"],
+        timeout_sec=200,
+        max_iterations=1,
+    ),
 ]
 
 # ── BUSINESS 시나리오 ─────────────────────────────────────
@@ -545,6 +562,34 @@ BUSINESS_SCENARIOS = [
         expect_pass=True,
         tags=["business", "contract", "debate"],
         timeout_sec=300,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="contract_risk_analysis",
+        domain=OntologyDomain.BUSINESS,
+        strategy="debate",
+        task=(
+            "소프트웨어 개발 용역 계약서를 검토하고 위험 수준(low/medium/high)과 "
+            "주요 위험 항목 3가지를 CON-20260508 형식 계약번호와 함께 제시하세요."
+        ),
+        validators=[has_content, has_business_content, has_sufficient_length],
+        expect_pass=True,
+        tags=["business", "contract", "debate", "risk"],
+        timeout_sec=200,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="approval_ontology_check",
+        domain=OntologyDomain.BUSINESS,
+        strategy="pipeline",
+        task=(
+            "금액 5000만원, 통화 KRW의 IT 서비스 계약에 대한 결재 요청서를 작성하세요. "
+            "승인자 ID와 결재 사유를 반드시 포함하세요."
+        ),
+        validators=[has_content, has_business_content],
+        expect_pass=True,
+        tags=["business", "approval", "ontology"],
+        timeout_sec=150,
         max_iterations=2,
     ),
 ]

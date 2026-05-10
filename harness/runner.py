@@ -246,6 +246,51 @@ class HarnessRunner:
                         "[Harness] POLYGLOT Ontology 실패: %s",
                         [e.message for e in ont_result.errors[:3]],
                     )
+            elif scenario.domain == OntologyDomain.KNOWLEDGE and str(output).strip():
+                text_kw = str(output)
+                kok = OntologyValidator.for_knowledge()
+                kop = {
+                    "task":           scenario.task[:495],
+                    "language":       "python",
+                    "result":         text_kw[:9900],
+                    "success":        agent_passed,
+                    "error_message":  "" if agent_passed else "harness_generation_failed",
+                }
+                okr = await kok.validate(kop)
+                ontology_passed = okr.passed
+                if not ontology_passed:
+                    log.warning(
+                        "[Harness] KNOWLEDGE Ontology 실패: %s",
+                        [e.message for e in okr.errors[:3]],
+                    )
+            elif scenario.domain == OntologyDomain.COST and str(output).strip():
+                tl = scenario.task.lower() + "\n" + str(output).lower()
+                cmpl = "critical" if (
+                    "critical" in tl or "의료" in tl or "medical" in tl
+                    or "patient" in tl or "환자" in tl
+                ) else "simple"
+                mod = (
+                    "CONSENSUS/gemma-4-26b-a4b"
+                    if cmpl == "critical"
+                    else "LOCAL_FAST/google/gemma-4-e4b"
+                )
+                est = max(120, len(str(output)) // 2 + 128)
+                coc = OntologyValidator.for_cost()
+                cor = await coc.validate(
+                    {
+                        "task":              scenario.task[:990],
+                        "complexity":        cmpl,
+                        "selected_model":    mod,
+                        "estimated_tokens":  est,
+                        "budget_usd":        1.0,
+                    },
+                )
+                ontology_passed = cor.passed
+                if not ontology_passed:
+                    log.warning(
+                        "[Harness] COST Ontology 실패: %s",
+                        [e.message for e in cor.errors[:3]],
+                    )
 
             # ── Step 3: 커스텀 Validator 실행 ─────────────
             validator_results = []
