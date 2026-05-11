@@ -63,6 +63,8 @@ from .context_chunking import (
     llm_summary_max_tokens,
     llm_summary_trigger,
     trim_text_with_llm_summary,
+    # Step 7 — 우선순위 키워드 YAML 외부화
+    load_priority_keywords,
 )
 
 __all__ = [
@@ -130,4 +132,6 @@ __all__ = [
     "llm_summary_max_tokens",
     "llm_summary_trigger",
     "trim_text_with_llm_summary",
+    # Step 7
+    "load_priority_keywords",
 ]

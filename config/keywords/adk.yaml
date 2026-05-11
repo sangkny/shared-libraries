@@ -1,0 +1,70 @@
+# shared-libraries/config/keywords/adk.yaml
+#
+# AutoNoGaDa-ADK (범용 코드 생성) 도메인 우선순위 키워드 (Step 7).
+#
+# Phase 2 의 architecture_decider / svg_generator / pipeline (generate / review /
+# fix) 4개 서브플로우가 모두 같은 SOFTWARE Ontology 안에서 동작 — 키워드도 단일.
+
+domain: software
+description: |
+  AutoNoGaDa-ADK 의 turn 우선순위 키워드. 코드 생성·리뷰·수정·아키텍처
+  결정의 모든 흐름을 다룬다. 영문은 소문자 (case-insensitive).
+
+keywords:
+  # 코드 구조
+  - function
+  - 함수
+  - class
+  - 클래스
+  - method
+  - 인터페이스
+  - api
+  - endpoint
+
+  # 품질 / 검토
+  - 테스트
+  - test
+  - 회귀
+  - regression
+  - 검증
+  - validate
+  - assert
+
+  # 보안 / 성능
+  - 보안
+  - security
+  - 인증
+  - jwt
+  - rbac
+  - 성능
+  - performance
+  - latency
+  - 캐시
+  - cache
+
+  # 데이터 / 스키마
+  - 스키마
+  - schema
+  - 모델
+  - model
+  - migration
+  - alembic
+  - sql
+  - rdb
+
+  # 아키텍처 / 결정
+  - 아키텍처
+  - architecture
+  - 결정
+  - decision
+  - 의존성
+  - dependency
+  - svg
+  - 다이어그램
+  - diagram
+
+  # 에러 / 예외
+  - 예외
+  - exception
+  - 에러
+  - error

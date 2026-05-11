@@ -176,7 +176,8 @@ class ReviewerAgent(BaseAgent):
                 self.log.info(
                     "[%s] reviewer_task_trimmed model=%s pre_tokens=%d post_tokens=%d "
                     "dropped=%d fallback=%s budget=%d llm_summary_used=%s "
-                    "llm_summary_attempted=%s llm_summary_error=%s",
+                    "llm_summary_attempted=%s llm_summary_error=%s "
+                    "llm_summary_retry_count=%d",
                     self.task_id,
                     _model_label,
                     _trim_info["pre_tokens"],
@@ -187,6 +188,7 @@ class ReviewerAgent(BaseAgent):
                     _trim_info.get("llm_summary_used", False),
                     _trim_info.get("llm_summary_attempted", False),
                     _trim_info.get("llm_summary_error", ""),
+                    int(_trim_info.get("llm_summary_retry_count", 0) or 0),
                 )
 
             _analysis = analyze_prompt_for_model(task, model=_model_label)
@@ -221,6 +223,9 @@ class ReviewerAgent(BaseAgent):
                         ),
                         "llm_summary_attempted": (_trim_info or {}).get(
                             "llm_summary_attempted", False
+                        ),
+                        "llm_summary_retry_count": int(
+                            (_trim_info or {}).get("llm_summary_retry_count", 0) or 0
                         ),
                     },
                 ),

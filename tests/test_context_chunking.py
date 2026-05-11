@@ -8,9 +8,11 @@ import asyncio
 import pytest
 
 from agents.context_chunking import (
+    DEFAULT_PRIORITY_KEYWORDS,
     DEFAULT_UNKNOWN_MODEL_CONTEXT,
     LLM_MODEL_CONTEXT_LIMITS,
     LLMSummarizer,
+    LMStudioJSONSummarizer,
     NoopLLMSummarizer,
     add_overlap_to_chunks,
     analyze_prompt_for_model,
@@ -31,6 +33,7 @@ from agents.context_chunking import (
     llm_summary_layer_enabled,
     llm_summary_max_tokens,
     llm_summary_trigger,
+    load_priority_keywords,
     merge_chunk_outputs,
     merge_chunks,
     merge_chunks_recursive_pairs,
@@ -860,3 +863,223 @@ def test_noop_llm_summarizer_returns_input() -> None:
         NoopLLMSummarizer().summarize(text="원문", max_tokens=100, hint=None)
     )
     assert out == "원문"
+
+
+# ── Step 7 — 도메인별 우선순위 키워드 YAML 외부화 ─────────────────
+
+
+def test_load_priority_keywords_medi_includes_eye_terms() -> None:
+    """패키지 내장 medi.yaml 이 안과 특이 용어를 포함해야 한다."""
+    load_priority_keywords.cache_clear()
+    kws = load_priority_keywords("medi")
+    assert isinstance(kws, tuple)
+    lower = {k.lower() for k in kws}
+    # 기본 진료 워크플로우
+    assert "증상" in lower
+    assert "진단" in lower
+    # 안과 특이 도메인 (Phase 1 MEDI-IOT-EyeCare 의 핵심)
+    assert "망막" in lower
+    assert "안저" in lower
+    assert "안압" in lower
+
+
+def test_load_priority_keywords_coops_business_terms() -> None:
+    load_priority_keywords.cache_clear()
+    kws = load_priority_keywords("coops")
+    lower = {k.lower() for k in kws}
+    assert "계약" in lower
+    assert "결재" in lower
+    assert "approver" in lower
+    assert "kpi" in lower or "ir" in lower
+
+
+def test_load_priority_keywords_adk_software_terms() -> None:
+    load_priority_keywords.cache_clear()
+    kws = load_priority_keywords("adk")
+    lower = {k.lower() for k in kws}
+    assert "function" in lower or "함수" in lower
+    assert "test" in lower or "테스트" in lower
+    assert "schema" in lower or "스키마" in lower
+
+
+def test_load_priority_keywords_unknown_domain_falls_back_to_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """없는 도메인 → default.yaml 로 fallback."""
+    monkeypatch.delenv("CHUNKING_KEYWORDS_DIR", raising=False)
+    load_priority_keywords.cache_clear()
+    kws = load_priority_keywords("nonexistent_domain_xyz")
+    assert isinstance(kws, tuple)
+    assert len(kws) > 0
+    # default.yaml 의 키워드는 DEFAULT_PRIORITY_KEYWORDS 와 같은 집합이어야 함
+    lower = {k.lower() for k in kws}
+    assert "증상" in lower
+    assert "진단" in lower
+
+
+def test_load_priority_keywords_missing_dir_uses_inmemory_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """존재하지 않는 디렉토리 → in-memory DEFAULT_PRIORITY_KEYWORDS fallback."""
+    monkeypatch.setenv("CHUNKING_KEYWORDS_DIR", str(tmp_path / "no_such_dir"))
+    load_priority_keywords.cache_clear()
+    kws = load_priority_keywords("medi")
+    # tuple(DEFAULT_PRIORITY_KEYWORDS) 와 동치여야 한다.
+    assert kws == tuple(DEFAULT_PRIORITY_KEYWORDS)
+
+
+def test_load_priority_keywords_custom_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """CHUNKING_KEYWORDS_DIR 로 외부 디렉토리 사용 — 운영 override 케이스."""
+    (tmp_path / "medi.yaml").write_text(
+        "domain: medical\nkeywords:\n  - 환자\n  - 보고서\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CHUNKING_KEYWORDS_DIR", str(tmp_path))
+    load_priority_keywords.cache_clear()
+    kws = load_priority_keywords("medi")
+    assert "환자" in kws
+    assert "보고서" in kws
+
+
+def test_load_priority_keywords_dedupe_case_insensitive(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    (tmp_path / "default.yaml").write_text(
+        "keywords:\n  - ICD\n  - icd\n  - Icd\n  - 진단\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CHUNKING_KEYWORDS_DIR", str(tmp_path))
+    load_priority_keywords.cache_clear()
+    kws = load_priority_keywords()
+    # 첫 등장 케이스 (ICD) 만 보존되고 나머지는 중복 제거
+    lowered = [k.lower() for k in kws]
+    assert lowered.count("icd") == 1
+    assert "진단" in kws
+
+
+# ── Step 7 — LMStudioJSONSummarizer 빈 응답 retry 회귀 ───────────
+
+
+class _SequentialHTTPXClient:
+    """httpx.AsyncClient 의 최소 surface 를 흉내내는 mock — POST 응답 순서대로 반환."""
+
+    def __init__(self, responses: list[dict]) -> None:
+        self.responses = list(responses)
+        self.calls: list[dict] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        return None
+
+    async def post(self, url: str, **kw):  # noqa: ARG002
+        self.calls.append({"url": url, "kw": kw})
+        if not self.responses:
+            raise AssertionError("Mock httpx: 응답이 더 없음")
+        body = self.responses.pop(0)
+
+        class _Resp:
+            def __init__(self, data: dict) -> None:
+                self._data = data
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return self._data
+
+        return _Resp(body)
+
+
+def _empty_resp() -> dict:
+    return {"choices": [{"message": {"content": ""}}]}
+
+
+def _ok_resp(text: str) -> dict:
+    return {"choices": [{"message": {"content": text}}]}
+
+
+def test_lmstudio_summarizer_retry_on_empty_then_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """1차 빈 응답 → 1회 retry → 두 번째 호출에서 성공해야 한다 (Step 7)."""
+    mock_client = _SequentialHTTPXClient([_empty_resp(), _ok_resp("유효한 요약")])
+
+    import agents.context_chunking as cc
+
+    monkeypatch.setattr(
+        cc,
+        "__name__",
+        cc.__name__,
+        raising=False,
+    )
+
+    summarizer = LMStudioJSONSummarizer(base_url="http://mock/v1", timeout=1.0)
+
+    class _MockHttpx:
+        @staticmethod
+        def AsyncClient(*a, **kw):  # noqa: N802, ARG004
+            return mock_client
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "httpx",
+        _MockHttpx,
+    )
+
+    out = asyncio.run(
+        summarizer.summarize(text="원문 텍스트", max_tokens=200, hint="test")
+    )
+    assert out == "유효한 요약"
+    assert summarizer.last_retry_count == 1
+    assert len(mock_client.calls) == 2
+    # 두 번째 호출의 system prompt 에 retry 지시문이 들어가 있어야 한다.
+    second_msgs = mock_client.calls[1]["kw"]["json"]["messages"]
+    system_text = next((m["content"] for m in second_msgs if m["role"] == "system"), "")
+    assert "이전 응답이 비었다" in system_text
+
+
+def test_lmstudio_summarizer_no_retry_when_first_response_ok(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """1차에서 비어있지 않으면 retry 없어야 한다 (정상 경로 회귀)."""
+    mock_client = _SequentialHTTPXClient([_ok_resp("바로 성공")])
+    summarizer = LMStudioJSONSummarizer(base_url="http://mock/v1", timeout=1.0)
+
+    class _MockHttpx:
+        @staticmethod
+        def AsyncClient(*a, **kw):  # noqa: N802, ARG004
+            return mock_client
+
+    monkeypatch.setitem(__import__("sys").modules, "httpx", _MockHttpx)
+
+    out = asyncio.run(summarizer.summarize(text="원문", max_tokens=200, hint=None))
+    assert out == "바로 성공"
+    assert summarizer.last_retry_count == 0
+    assert len(mock_client.calls) == 1
+
+
+def test_trim_text_with_llm_summary_records_retry_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """trim_text_with_llm_summary 가 summarizer.last_retry_count 를 info 에 합류."""
+
+    class _RetryAwareSummarizer(LLMSummarizer):
+        def __init__(self) -> None:
+            self.last_retry_count = 1
+
+        async def summarize(self, *, text: str, max_tokens: int, hint=None) -> str:
+            return "요약완료"
+
+    monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
+    monkeypatch.setenv("LLM_SUMMARY_TRIGGER", "chars")
+    text = ("foo " * 4000).strip()
+    out, info = asyncio.run(
+        trim_text_with_llm_summary(text, max_tokens=200, summarizer=_RetryAwareSummarizer())
+    )
+    assert info["llm_summary_used"] is True
+    assert info["llm_summary_retry_count"] == 1
+    assert out == "요약완료"

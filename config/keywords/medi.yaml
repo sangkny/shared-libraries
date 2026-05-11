@@ -1,0 +1,51 @@
+# shared-libraries/config/keywords/medi.yaml
+#
+# MEDI-IOT-EyeCare 도메인 우선순위 키워드 (Step 7 — book §16.10.8).
+#
+# 용도:
+#   - prioritize_turn_strings(..., keywords=load_priority_keywords("medi"))
+#   - @context_chunked(prioritize_medical_turns=True) 내부 기본값 대체
+#   - chunking_quality_score(priority_keywords=...) 의 도메인 별 평가
+#
+# 갱신 정책:
+#   1. 운영 데이터 (medi_diagnosis_context 의 chunking_recommendation) 와 임상
+#      회귀 결과를 바탕으로 분기마다 검토.
+#   2. 추가는 자유롭게, 제거는 회귀 시나리오에서 한 번 이상 영향이 사라진 후.
+#   3. 영문 약어는 소문자 (`icd`, `hba1c`) — 매칭은 case-insensitive.
+
+domain: medical
+description: |
+  안과 진단 (MEDI-IOT-EyeCare) 의 turn 우선순위 키워드.
+  증상·검사·진단·처방·환자 이력 + 안과 특이 용어 (망막, 안저, 안압).
+
+keywords:
+  # 진료 워크플로우 핵심
+  - 증상
+  - 검사
+  - 진단
+  - 처방
+  - 소견
+  - 병력
+  - 약물
+
+  # 표준 코드 / 검사 지표 (case-insensitive)
+  - icd
+  - hba1c
+  - bp
+  - vital
+
+  # 안과 특이 도메인 (Phase 1 MEDI-IOT-EyeCare 의 핵심)
+  - 망막
+  - 안저
+  - 안압
+  - 시력
+  - 황반
+  - 녹내장
+  - 백내장
+  - 당뇨망막
+  - 안저카메라
+
+  # 환자 안전 / 응급
+  - 응급
+  - 알레르기
+  - 부작용

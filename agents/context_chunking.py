@@ -28,6 +28,7 @@ import re
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, ParamSpec, TypeVar
 
 from llm.base import Message
@@ -47,6 +48,153 @@ DEFAULT_PRIORITY_KEYWORDS: tuple[str, ...] = (
     "HbA1c",
     "망막",
 )
+
+
+# ════════════════════════════════════════════════════════════
+# Step 7 — 도메인별 우선순위 키워드 YAML 외부화
+# ════════════════════════════════════════════════════════════
+# 위치:
+#   shared-libraries/config/keywords/{domain}.yaml
+#   (default.yaml 은 도메인 미지정/실패 fallback 으로 항상 존재해야 함)
+#
+# 운영 정책:
+#   - PyYAML 미설치 또는 파일 없음 → in-memory ``DEFAULT_PRIORITY_KEYWORDS``
+#     fallback (graceful degrade, 거동 영향 0).
+#   - 결과는 ``functools.cache`` 로 1회 로드 후 메모이즈 — 핫패스 호출자
+#     (prioritize_turn_strings 등) 의 IO 비용 0.
+#   - 환경변수 ``CHUNKING_KEYWORDS_DIR`` 로 디렉토리 위치 override 가능
+#     (CI/테스트/멀티 도메인 분리 운영).
+
+_DEFAULT_KEYWORDS_DIR = Path(__file__).resolve().parent.parent / "config" / "keywords"
+
+
+def _resolve_keywords_dir(config_dir: str | Path | None = None) -> Path:
+    """Keyword YAML 디렉토리 해석 — env > 인자 > 패키지 내장 순서."""
+    env_dir = os.getenv("CHUNKING_KEYWORDS_DIR", "").strip()
+    if env_dir:
+        return Path(env_dir).expanduser()
+    if config_dir is not None:
+        return Path(config_dir).expanduser()
+    return _DEFAULT_KEYWORDS_DIR
+
+
+def _parse_minimal_yaml_keywords(text: str) -> list[str]:
+    """PyYAML 없을 때 쓰는 미니멀 파서 — ``keywords:`` 블록 안의 ``- 값`` 만 추출.
+
+    Notes:
+        - 본 모듈의 YAML 파일들은 단순한 list 만 사용한다는 컨벤션을 따른다.
+        - 따옴표(``"`` / ``'``) 제거, 주석(``#``) 제거, 빈 줄 무시.
+        - 다른 키(``domain`` / ``description``)는 무시 (메타 데이터).
+    """
+    keywords: list[str] = []
+    in_block = False
+    for raw_line in text.splitlines():
+        line = raw_line.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        if not in_block:
+            if line.lstrip().startswith("keywords:"):
+                in_block = True
+            continue
+        # 블록 안 — 들여쓰기된 ``- value`` 만 채택.
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            value = stripped[2:].strip().strip("'").strip('"')
+            if value:
+                keywords.append(value)
+        elif not line.startswith((" ", "\t")) and stripped and stripped.endswith(":"):
+            # 다른 최상위 키 시작 → block 종료
+            in_block = False
+    return keywords
+
+
+def _read_keywords_file(path: Path) -> tuple[str, ...] | None:
+    """YAML 한 개 파일에서 ``keywords`` list 를 읽는다. 실패 시 None."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        logger.debug("priority keywords: read fail (%s) — %s", path, exc)
+        return None
+
+    keywords: list[str] = []
+    try:
+        import yaml  # type: ignore[import-untyped]
+
+        data = yaml.safe_load(text) or {}
+        if isinstance(data, dict):
+            raw = data.get("keywords")
+            if isinstance(raw, list):
+                keywords = [str(x).strip() for x in raw if str(x).strip()]
+    except ImportError:
+        logger.debug(
+            "priority keywords: PyYAML 미설치 — minimal parser 로 %s 읽음", path.name
+        )
+        keywords = _parse_minimal_yaml_keywords(text)
+    except Exception as exc:  # PyYAML 자체 에러
+        logger.warning(
+            "priority keywords: yaml parse 실패(%s) — minimal parser fallback", exc
+        )
+        keywords = _parse_minimal_yaml_keywords(text)
+
+    if not keywords:
+        return None
+    # 중복 제거 (입력 순서 보존).
+    seen: set[str] = set()
+    unique: list[str] = []
+    for kw in keywords:
+        key = kw.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(kw)
+    return tuple(unique)
+
+
+@functools.lru_cache(maxsize=32)
+def load_priority_keywords(
+    domain: str | None = None,
+    *,
+    config_dir: str | Path | None = None,
+) -> tuple[str, ...]:
+    """도메인 우선순위 키워드 — YAML 우선 + 결정적 fallback.
+
+    Args:
+        domain: ``medi`` | ``coops`` | ``adk`` | ``default`` 또는 자유 이름.
+            ``None`` 또는 빈 문자열이면 ``default`` 로 취급.
+        config_dir: YAML 디렉토리 명시. 미지정 시 환경변수
+            ``CHUNKING_KEYWORDS_DIR`` 또는 패키지 내장 경로 사용.
+
+    Returns:
+        키워드 튜플. 단계별 fallback:
+            1) ``{domain}.yaml`` → 2) ``default.yaml`` → 3) in-memory
+            ``DEFAULT_PRIORITY_KEYWORDS``.
+
+    Notes:
+        - ``lru_cache`` 로 결과 메모이즈 (디렉토리 변경 시 ``cache_clear()``).
+        - 호출자 (prioritize_turn_strings / chunking_quality_score /
+          @context_chunked) 가 인자로 명시한 키워드를 그대로 쓰면 본 함수 호출
+          불필요 — 기본 동작과의 동치성을 유지한다.
+    """
+    key = (domain or "").strip().lower() or "default"
+    directory = _resolve_keywords_dir(config_dir)
+
+    candidate = directory / f"{key}.yaml"
+    if candidate.is_file():
+        loaded = _read_keywords_file(candidate)
+        if loaded:
+            return loaded
+
+    default_path = directory / "default.yaml"
+    if default_path.is_file():
+        loaded = _read_keywords_file(default_path)
+        if loaded:
+            return loaded
+
+    logger.debug(
+        "priority keywords: %s 도 default.yaml 도 못 읽음 — in-memory DEFAULT fallback",
+        key,
+    )
+    return tuple(DEFAULT_PRIORITY_KEYWORDS)
 
 
 def _get_encoder() -> Any | None:
@@ -1544,7 +1692,27 @@ class LMStudioJSONSummarizer(LLMSummarizer):
     의존성 ``httpx`` 가 없으면 RuntimeError. dev 환경 기본값으로 컨테이너 호스트의
     LM Studio (``host.docker.internal:8000/v1``) 와 ``google/gemma-4-e4b`` (light)
     를 쓰며, 환경변수로 모두 덮어쓸 수 있다.
+
+    Step 7 빈 응답 개선:
+        - system prompt 에 few-shot 예시 1개 추가 (Phase 2 운영 회귀 학습).
+        - 첫 호출이 빈 응답이면 더 명시적 지시문 + 다른 temperature 로 1회 retry.
+        - retry 동작은 ``info["llm_summary_retry_count"]`` 로 호출자가 관측 가능
+          (LMStudioJSONSummarizer 자체는 단순히 문자열을 반환하므로 retry 횟수는
+          ``last_retry_count`` 속성에 기록).
     """
+
+    # Phase 2 운영 회귀에서 e4b 모델이 짧은 한국어 입력에 빈 응답을 던지는
+    # 케이스를 자주 보였다 — few-shot 예시를 system 에 끼워 의미 있는 응답을
+    # 유도한다. 의료/SW/비즈 도메인 공통으로 적용되도록 일반적인 표현 사용.
+    _FEWSHOT_EXAMPLE: str = (
+        "예시:\n"
+        "[입력]\n"
+        "환자 박모씨 65세, HbA1c 8.2%, 12년차 당뇨 환자. "
+        "최근 시야가 흐릿하다고 호소. 망막 검사에서 미세혈관류 다수 관찰.\n"
+        "[요약]\n"
+        "65세 박모씨, 당뇨 12년차(HbA1c 8.2%) — 시야 흐림 호소, "
+        "망막 검사상 미세혈관류 다수. 당뇨망막증 의심."
+    )
 
     def __init__(
         self,
@@ -1564,6 +1732,56 @@ class LMStudioJSONSummarizer(LLMSummarizer):
         except (TypeError, ValueError):
             self.timeout = 30.0
         self.api_key = api_key or os.getenv("LLM_SUMMARY_API_KEY", "lm-studio")
+        # 마지막 summarize() 호출의 retry 횟수 — 호출자가 메트릭에 부착할 수 있다.
+        self.last_retry_count: int = 0
+
+    def _system_prompt(self, hint: str | None, *, retry: bool) -> str:
+        base = (
+            "당신은 의미 손실 없이 입력 텍스트를 압축하는 요약 도우미다.\n"
+            "- 사실/숫자/명사/도메인 용어는 우선 보존한다.\n"
+            "- 단순 반복/패딩/장식 문구는 한 줄로 압축한다.\n"
+            "- 출력은 평문(prose) 본문만 — 인사·사족·번호 매김 금지.\n"
+            "- 입력이 비어 보이거나 의미 없어 보여도 한 문장 이상은 반드시 응답한다."
+        )
+        if retry:
+            base += (
+                "\n- 이전 응답이 비었다 — 이번에는 반드시 입력의 핵심을 1~3문장으로 요약한다."
+            )
+        if hint:
+            base += f"\n- 컨텍스트 힌트: {hint}"
+        base += f"\n\n{self._FEWSHOT_EXAMPLE}"
+        return base
+
+    async def _call_once(
+        self,
+        client: Any,
+        *,
+        text: str,
+        max_tokens: int,
+        hint: str | None,
+        retry: bool,
+        temperature: float,
+    ) -> str:
+        r = await client.post(
+            f"{self.base_url}/chat/completions",
+            json={
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": self._system_prompt(hint, retry=retry)},
+                    {"role": "user", "content": text},
+                ],
+                "max_tokens": int(max_tokens),
+                "temperature": float(temperature),
+            },
+            headers={"Authorization": f"Bearer {self.api_key}"},
+        )
+        r.raise_for_status()
+        data = r.json()
+        choices = data.get("choices") or []
+        if not choices:
+            return ""
+        msg = (choices[0] or {}).get("message") or {}
+        return str(msg.get("content") or "").strip()
 
     async def summarize(
         self, *, text: str, max_tokens: int, hint: str | None = None
@@ -1576,36 +1794,33 @@ class LMStudioJSONSummarizer(LLMSummarizer):
                 "(pip install httpx)"
             ) from exc
 
-        system = (
-            "당신은 의미 손실 없이 입력 텍스트를 압축하는 요약 도우미다.\n"
-            "- 사실/숫자/명사/도메인 용어는 우선 보존한다.\n"
-            "- 단순 반복/패딩/장식 문구는 한 줄로 압축한다.\n"
-            "- 출력은 평문(prose) 본문만 — 인사·사족·번호 매김 금지."
-        )
-        if hint:
-            system += f"\n- 컨텍스트 힌트: {hint}"
-
+        self.last_retry_count = 0
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            r = await client.post(
-                f"{self.base_url}/chat/completions",
-                json={
-                    "model": self.model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": text},
-                    ],
-                    "max_tokens": int(max_tokens),
-                    "temperature": 0.2,
-                },
-                headers={"Authorization": f"Bearer {self.api_key}"},
+            # 1회차 — 결정적 응답 우선 (낮은 temperature).
+            result = await self._call_once(
+                client,
+                text=text,
+                max_tokens=max_tokens,
+                hint=hint,
+                retry=False,
+                temperature=0.2,
             )
-            r.raise_for_status()
-            data = r.json()
-            choices = data.get("choices") or []
-            if not choices:
-                return ""
-            msg = (choices[0] or {}).get("message") or {}
-            return str(msg.get("content") or "").strip()
+            if result:
+                return result
+
+            # 빈 응답 → 1회 retry (명시적 지시문 + 더 높은 temperature).
+            self.last_retry_count = 1
+            logger.info(
+                "LMStudioJSONSummarizer: empty response, retrying once with stricter prompt"
+            )
+            return await self._call_once(
+                client,
+                text=text,
+                max_tokens=max_tokens,
+                hint=hint,
+                retry=True,
+                temperature=0.5,
+            )
 
 
 def _should_attempt_llm_summary(fallback: str) -> bool:
@@ -1651,6 +1866,7 @@ async def trim_text_with_llm_summary(
     info.setdefault("llm_summary_used", False)
     info.setdefault("llm_summary_error", "")
     info.setdefault("llm_summary_pre_tokens", info.get("post_tokens", 0))
+    info.setdefault("llm_summary_retry_count", 0)
 
     if not llm_summary_layer_enabled() or summarizer is None:
         return trimmed, info
@@ -1670,6 +1886,10 @@ async def trim_text_with_llm_summary(
             exc,
         )
         return trimmed, info
+
+    # Step 7 — summarizer 가 retry 횟수를 노출하면 info 에 합류 (관측용).
+    retry_count = int(getattr(summarizer, "last_retry_count", 0) or 0)
+    info["llm_summary_retry_count"] = retry_count
 
     summary = (summary or "").strip()
     if not summary:
@@ -1728,6 +1948,7 @@ async def compress_conversation_history_with_llm_summary(
         "llm_summary_attempted": False,
         "llm_summary_used": False,
         "llm_summary_error": "",
+        "llm_summary_retry_count": 0,
     }
     if pre <= max_tokens:
         return raw, info
@@ -1761,6 +1982,9 @@ async def compress_conversation_history_with_llm_summary(
         )
         return trimmed, info
 
+    info["llm_summary_retry_count"] = int(
+        getattr(summarizer, "last_retry_count", 0) or 0
+    )
     summary = (summary or "").strip()
     if not summary:
         info["llm_summary_error"] = "empty_response"
@@ -1823,4 +2047,5 @@ __all__ = [
     "llm_summary_max_tokens",
     "llm_summary_trigger",
     "trim_text_with_llm_summary",
+    "load_priority_keywords",
 ]

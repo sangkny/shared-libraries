@@ -1,0 +1,23 @@
+# shared-libraries/config/keywords/default.yaml
+#
+# 도메인을 지정하지 않은 호출자가 사용할 fallback 키워드 — 기존
+# DEFAULT_PRIORITY_KEYWORDS (의료 도메인 단순화 버전) 와 동치.
+#
+# load_priority_keywords() 가 도메인을 찾지 못하거나 yaml 모듈이 없을 때
+# 이 파일이 사용된다. 결과적으로 in-memory DEFAULT 와 YAML 양쪽에서 동일한
+# 거동을 보장한다 (회귀 테스트가 그 동치를 검증).
+
+domain: default
+description: |
+  도메인 지정 없는 fallback 키워드. 기본은 의료 도메인의 핵심 키워드만
+  유지해서 (Phase 1 의 DEFAULT_PRIORITY_KEYWORDS 와 일치) 운영 회귀를 막는다.
+
+keywords:
+  - 증상
+  - 검사
+  - 진단
+  - 처방
+  - icd
+  - 소견
+  - hba1c
+  - 망막
