@@ -12,9 +12,10 @@ http_bearer = HTTPBearer(auto_error=False)
 
 # 개발 하드코딩 계정: (password, role)
 DEV_USERS: dict[str, tuple[str, str]] = {
-    "admin":    ("admin123", "admin"),
-    "doctor":   ("doc123", "doctor"),
-    "staff":    ("staff123", "staff"),
+    "admin":     ("admin123", "admin"),
+    "doctor":    ("doc123", "doctor"),
+    "staff":     ("staff123", "staff"),
+    "manager":   ("mgr123", "manager"),
     "developer": ("dev123", "developer"),
 }
 
@@ -78,6 +79,12 @@ async def current_user_strict(
         )
     try:
         payload = verify_token_payload(creds.credentials)
+        if str(payload.get("typ", "access")) == "refresh":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="access token이 아닙니다.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         return {"user_id": str(payload["sub"]), "role": str(payload["role"])}
     except (ValueError, KeyError) as e:
         raise HTTPException(

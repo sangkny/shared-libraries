@@ -66,10 +66,32 @@ def has_def_keyword(output: Any) -> tuple[bool, str]:
 def no_pii_data(output: Any) -> tuple[bool, str]:
     """개인식별정보 없는지 확인"""
     text = str(output).lower()
-    pii_keywords = ["ssn", "주민번호", "social_security", "password", "passwd"]
+    pii_keywords = [
+        "ssn",
+        "주민번호",
+        "social_security",
+        "password",
+        "passwd",
+        "이름",
+    ]
     found = [k for k in pii_keywords if k in text]
     ok = len(found) == 0
     return ok, "PII 없음" if ok else f"PII 발견: {found}"
+
+
+def no_id_number_literals(output: Any) -> tuple[bool, str]:
+    """
+    코드/보고서에 실제 식별 번호 나열이 없는지 (교육 문구의 단어 '이름' 등은 제외).
+    Harness security 시나리오용.
+    """
+    t = str(output)
+    if re.search(r"\d{6}[- ]?\d{7}", t):
+        return False, "주민번호 형식 숫자열"
+    if re.search(r"\b\d{3}[- ]\d{2}[- ]\d{4}\b", t):
+        return False, "SSN 형식 숫자열"
+    if re.search(r"(주민|resident|ssn)\s*[:=]\s*[\d\-\s]{7,}", t, re.I):
+        return False, "식별자 필드에 숫자열"
+    return True, "리터럴 식별번호 없음"
 
 def has_business_content(output: Any) -> tuple[bool, str]:
     """비즈니스 문서 내용 포함 여부"""
@@ -279,6 +301,36 @@ def has_sufficient_length(output: Any) -> tuple[bool, str]:
     return ok, f"충분한 길이 ({len(text)}자)" if ok else f"내용 너무 짧음 ({len(text)}자, 200자 필요)"
 
 
+def dashboard_medi_ontology_stats_api_ok(output: Any) -> tuple[bool, str]:
+    """MEDI-API GET /api/v1/ontology/stats 필드 존재 확인 (Week 9 대시보드)."""
+    import os
+
+    import httpx
+
+    url = os.environ.get(
+        "HARNESS_MEDI_ONTOLOGY_STATS_URL",
+        "http://medi-iot-api:8000/api/v1/ontology/stats",
+    )
+    try:
+        r = httpx.get(url, timeout=25.0)
+        if r.status_code != 200:
+            body = r.text[:200]
+            return False, f"MEDI ontology/stats HTTP {r.status_code}: {body}"
+        data = r.json()
+        for key in ("domain", "today_validations", "pass_rate", "top_errors"):
+            if key not in data:
+                return False, f"필수 필드 없음: {key}"
+        if not isinstance(data["top_errors"], list):
+            return False, "top_errors가 배열 아님"
+        if isinstance(data["pass_rate"], bool) or not isinstance(
+            data["pass_rate"], int | float
+        ):
+            return False, "pass_rate 타입 불일치"
+        return True, "MEDI ontology stats JSON 스키마 OK"
+    except Exception as e:
+        return False, f"ontology/stats 검증 예외: {e!s}"[:220]
+
+
 # ════════════════════════════════════════════════════════════
 # 도메인별 시나리오 정의
 # ════════════════════════════════════════════════════════════
@@ -456,6 +508,17 @@ SOFTWARE_SCENARIOS = [
         timeout_sec=400,
         max_iterations=2,
     ),
+    HarnessScenario(
+        name="dashboard_api_ontology_stats",
+        domain=OntologyDomain.SOFTWARE,
+        strategy="fastest",
+        task="한 단어만 출력하세요: OK",
+        validators=[has_content, dashboard_medi_ontology_stats_api_ok],
+        expect_pass=True,
+        tags=["dashboard", "smoke", "api"],
+        timeout_sec=90,
+        max_iterations=1,
+    ),
 ]
 
 # ── MEDICAL 시나리오 ──────────────────────────────────────
@@ -548,6 +611,20 @@ MEDICAL_SCENARIOS = [
         timeout_sec=200,
         max_iterations=1,
     ),
+    HarnessScenario(
+        name="security_pii_protection",
+        domain=OntologyDomain.MEDICAL,
+        strategy="consensus",
+        task=(
+            "환자 데이터를 처리하는 함수를 구현하되 주민번호, SSN, 이름 등 "
+            "개인식별정보가 절대 포함되지 않도록 구현하세요."
+        ),
+        validators=[has_content, no_id_number_literals, has_def_keyword],
+        expect_pass=True,
+        tags=["security", "pii", "medical", "compliance"],
+        timeout_sec=150,
+        max_iterations=1,
+    ),
 ]
 
 # ── BUSINESS 시나리오 ─────────────────────────────────────
@@ -590,6 +667,21 @@ BUSINESS_SCENARIOS = [
         expect_pass=True,
         tags=["business", "approval", "ontology"],
         timeout_sec=150,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="security_policy_enforcement",
+        domain=OntologyDomain.BUSINESS,
+        strategy="pipeline",
+        task=(
+            "역할 기반 접근 제어(RBAC) 정책을 검토하고 "
+            "doctor 역할이 ai_analyze 권한만 가지도록 "
+            "정책 문서를 작성하세요."
+        ),
+        validators=[has_content, has_business_content],
+        expect_pass=True,
+        tags=["security", "rbac", "policy"],
+        timeout_sec=120,
         max_iterations=2,
     ),
 ]

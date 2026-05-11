@@ -18,3 +18,6 @@ EVENT_CODE_GENERATED: Final[str] = "code.generated"
 
 # CoOps → MEDI-IOT: 계약 승인 시 장비 발주 등 연계
 EVENT_CONTRACT_APPROVED: Final[str] = "contract.approved"
+
+# 보안 — 반복 PII 패턴 감지(감사 연동)
+EVENT_SECURITY_PII_SUSPICIOUS: Final[str] = "security.pii.suspicious"

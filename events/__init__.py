@@ -6,6 +6,7 @@ from .constants import (
     EVENT_CODE_GENERATED,
     EVENT_CONTRACT_APPROVED,
     EVENT_MEDICAL_DIAGNOSIS_COMPLETED,
+    EVENT_SECURITY_PII_SUSPICIOUS,
 )
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     "EVENT_CODE_GENERATED",
     "EVENT_CONTRACT_APPROVED",
     "EVENT_MEDICAL_DIAGNOSIS_COMPLETED",
+    "EVENT_SECURITY_PII_SUSPICIOUS",
     "EventBus",
     "publish_platform_event",
 ]
