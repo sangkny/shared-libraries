@@ -4,12 +4,72 @@ ReviewerAgent — Ontology 기반 검증
 - 모델: HEAVY (gemma-4-26b-a4b) — 고품질 추론
 - 역할: GeneratorAgent 결과물을 OntologyValidator로 검증 + LLM 리뷰
 - 출력: ReviewResult (passed/failed + 피드백)
+
+컨텍스트 누적 가드 (book §16.10/§16.11 — 청킹 도입 Step 3):
+    Orchestrator 는 동일한 ``task`` 를 Generator·Reviewer 양쪽에 그대로 전달한다.
+    Reviewer 는 그 위에 ``generated`` (이미 1500자 cap) + Ontology 섹션 + 도메인 기준
+    + 시스템 프롬프트 + LLM ``max_tokens=1024`` 응답 예약을 모두 합산하므로,
+    LM Studio 호스트 모델의 실제 컨텍스트 한도(예: 8K cap)를 초과하기 쉽다.
+    여기서는 ``task`` 만 ``REVIEWER_TASK_MAX_TOKENS`` (기본 4096) 안으로 절단하고
+    ``medi_reviewer_context`` 한 줄 메트릭 로그를 흘려보낸다. 거동(검증 의도)은 보존된다.
 """
+import os
 from dataclasses import dataclass, field
 from llm.base import ModelRole
 from ontology.base import OntologyDomain, ValidationResult
 from ontology.validator import OntologyValidator
 from .base import BaseAgent, AgentType, AgentResult
+from .context_chunking import (
+    chunking_metrics_snapshot,
+    analyze_prompt_for_model,
+    chunk_prompt_for_model,
+    estimate_text_tokens,
+    trim_text_to_token_budget,
+)
+
+
+def _reviewer_task_budget_tokens() -> int:
+    """``REVIEWER_TASK_MAX_TOKENS`` 환경변수 — 기본 600.
+
+    LM Studio 가 모델을 약 1.5K~2K 컨텍스트로 로딩하는 운영 현실(현장 측정 결과)을
+    반영해 Reviewer 의 ``task`` 부분 토큰 상한을 보수적으로 잡는다. 운영자가
+    더 큰 모델 컨텍스트(예: 8K, 16K)로 로딩했다면 이 값을 환경변수로 늘려도 된다.
+    정적 비용(generated ≈140 + criteria 300 + system 54 + format 50 + 응답 예약)을
+    고려하면 1.5K 컨텍스트에서도 task 600 토큰까지 안전하게 들어간다.
+    """
+    try:
+        raw = os.getenv("REVIEWER_TASK_MAX_TOKENS", "400")
+        return max(150, int(raw))
+    except (TypeError, ValueError):
+        return 400
+
+
+def _reviewer_response_max_tokens() -> int:
+    """``REVIEWER_RESPONSE_MAX_TOKENS`` 환경변수 — 기본 192.
+
+    Reviewer 응답은 ``VERDICT/FEEDBACK/IMPROVEMENTS`` 한두 문장이면 충분하다.
+    기존 1024 는 응답 예약으로 컨텍스트 예산을 크게 잡아먹고 있었다.
+    """
+    try:
+        raw = os.getenv("REVIEWER_RESPONSE_MAX_TOKENS", "192")
+        return max(64, int(raw))
+    except (TypeError, ValueError):
+        return 192
+
+
+def _reviewer_generated_preview_chars() -> int:
+    """``REVIEWER_GENERATED_PREVIEW_CHARS`` 환경변수 — 기본 400.
+
+    Reviewer 가 검토할 ``generated`` 결과물의 미리보기 길이(문자). 기존 1500자는
+    한국어 기준 약 500 토큰을 매번 차지하므로 작은 컨텍스트 모델에서 누적의
+    주요 원인이 된다. 400자(약 140 토큰)로 줄여도 검증 의도는 충분히 표현되며,
+    운영자가 더 큰 컨텍스트 모델을 쓰면 이 값을 환경변수로 늘릴 수 있다.
+    """
+    try:
+        raw = os.getenv("REVIEWER_GENERATED_PREVIEW_CHARS", "300")
+        return max(120, int(raw))
+    except (TypeError, ValueError):
+        return 300
 
 
 @dataclass
@@ -86,6 +146,63 @@ class ReviewerAgent(BaseAgent):
         iteration = ctx.get("iteration", 0)
         generated = ctx.get("generated", task)  # 검증할 결과물
 
+        # ── 컨텍스트 누적 가드 (book §16.11 — Step 3) ────────────────────
+        # task 만 토큰 예산 안으로 절단. generated/criteria/system 은 그대로 둔다.
+        # 거동은 보존하면서 ``Context size exceeded`` 회귀를 막는다.
+        _budget = _reviewer_task_budget_tokens()
+        try:
+            _model_label = getattr(self.llm, "heavy_model", "") or "gemma-4-26b-a4b"
+            _orig_task_tokens = estimate_text_tokens(task)
+            _trim_info: dict | None = None
+            if _orig_task_tokens > _budget:
+                task, _trim_info = trim_text_to_token_budget(
+                    task, max_tokens=_budget
+                )
+                self.log.info(
+                    "[%s] reviewer_task_trimmed model=%s pre_tokens=%d post_tokens=%d "
+                    "dropped=%d fallback=%s budget=%d",
+                    self.task_id,
+                    _model_label,
+                    _trim_info["pre_tokens"],
+                    _trim_info["post_tokens"],
+                    _trim_info["dropped_tokens"],
+                    _trim_info["fallback"],
+                    _trim_info["budget"],
+                )
+
+            _analysis = analyze_prompt_for_model(task, model=_model_label)
+            _chunks_for_metric = (
+                chunk_prompt_for_model(task, model=_model_label)
+                if not _analysis.fits_context
+                else []
+            )
+            self.log.info(
+                "medi_reviewer_context",
+                extra=chunking_metrics_snapshot(
+                    _analysis,
+                    _chunks_for_metric,
+                    extra={
+                        "flow": "agent_reviewer",
+                        "task_id": str(self.task_id),
+                        "iteration": int(iteration),
+                        "domain": getattr(self.domain, "value", str(self.domain)),
+                        "trim_pre_tokens": (_trim_info or {}).get(
+                            "pre_tokens", _orig_task_tokens
+                        ),
+                        "trim_post_tokens": (_trim_info or {}).get(
+                            "post_tokens", _orig_task_tokens
+                        ),
+                        "trim_dropped_tokens": (_trim_info or {}).get(
+                            "dropped_tokens", 0
+                        ),
+                        "trim_fallback": (_trim_info or {}).get("fallback", "none"),
+                        "trim_applied": _trim_info is not None,
+                    },
+                ),
+            )
+        except Exception as _ctxe:
+            self.log.debug("[reviewer_trim] 한 줄 가드 실패(무시): %s", _ctxe)
+
         # ── Step 1: OntologyValidator 자동 검증 ────────────
         ontology_result = None
         if isinstance(generated, dict):
@@ -104,11 +221,26 @@ class ReviewerAgent(BaseAgent):
         prompt = self._build_review_prompt(task, generated, ontology_result)
 
         try:
+            _resp_max = _reviewer_response_max_tokens()
+            try:
+                _prompt_tok = estimate_text_tokens(prompt)
+                _system_tok = estimate_text_tokens(system)
+                self.log.info(
+                    "[%s] reviewer_request_size prompt_tokens=%d system_tokens=%d "
+                    "max_tokens=%d total_request_est=%d",
+                    self.task_id,
+                    _prompt_tok,
+                    _system_tok,
+                    _resp_max,
+                    _prompt_tok + _system_tok + _resp_max,
+                )
+            except Exception:
+                pass
             res = await self.llm.chat(
                 prompt,
                 role=self.model_role,
                 system=system,
-                max_tokens=1024,
+                max_tokens=_resp_max,
                 temperature=0.2,  # 검증은 일관성 중요
             )
             review = self._parse_review(res.content, ontology_result)
@@ -196,12 +328,13 @@ class ReviewerAgent(BaseAgent):
             "【FAIL 조건】요청 내용 누락 또는 명백한 오류"
         ))
 
+        _preview_chars = _reviewer_generated_preview_chars()
         return f"""다음 결과물을 검토하세요.
 
 원래 작업: {task}
 
 생성된 결과물:
-{str(generated)[:1500]}
+{str(generated)[:_preview_chars]}
 {ontology_section}
 {domain_criteria}
 

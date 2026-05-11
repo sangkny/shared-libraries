@@ -7,6 +7,7 @@ Orchestrator — 4가지 autopus-ADK 전략 기반 워크플로우
 - FASTEST:   타임아웃 시 즉시 응답 (fallback)
 """
 import asyncio
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -14,10 +15,14 @@ from typing import Any
 from llm.base import ModelRole
 from ontology.base import OntologyDomain
 from .base import BaseAgent, AgentType, AgentResult, AgentStatus, LoreEntry
+from .context_chunking import estimate_orchestrator_input_tokens, prepare_orchestrator_context
 from .planner import PlannerAgent
 from .generator import GeneratorAgent
 from .reviewer import ReviewerAgent
 from .fixer import FixerAgent
+
+# 추정 초과 시 LM Studio 등 로컴 모델의 context overflow 경고
+_ORCH_SOFT_CONTEXT_WARN_TOKENS = 12_000
 
 
 # ── 전략 정의 ─────────────────────────────────────────────
@@ -139,18 +144,37 @@ class Orchestrator(BaseAgent):
             f"[{self.task_id}] Orchestrator 시작 — "
             f"strategy={self.strategy.value} | domain={self.domain.value}"
         )
-        import time
+        ctx_raw = dict(context or {})
+        t_est_original = estimate_orchestrator_input_tokens(task, ctx_raw)
+        ctx_eff = prepare_orchestrator_context(task, context)
+        ctx_est = estimate_orchestrator_input_tokens(task, ctx_eff)
+        ratio = round(ctx_est / max(1.0, float(t_est_original)), 6)
+        self.log.info(
+            "[%s] orch_context_metrics original_est=%s compact_eff_est=%s compression_ratio_est=%s",
+            self.task_id,
+            t_est_original,
+            ctx_est,
+            ratio,
+        )
+        if ctx_est > _ORCH_SOFT_CONTEXT_WARN_TOKENS:
+            self.log.warning(
+                "[%s] 추정 입력 토큰≈%s — 컨텍스트 초과(context size) 가능성",
+                self.task_id,
+                ctx_est,
+            )
+        else:
+            self.log.debug("[%s] 추정 입력 토큰≈%s", self.task_id, ctx_est)
         t0 = time.monotonic()
 
         try:
             if self.strategy == OrchestraStrategy.PIPELINE:
-                result = await self._run_pipeline(task, context or {})
+                result = await self._run_pipeline(task, ctx_eff)
             elif self.strategy == OrchestraStrategy.CONSENSUS:
-                result = await self._run_consensus(task, context or {})
+                result = await self._run_consensus(task, ctx_eff)
             elif self.strategy == OrchestraStrategy.DEBATE:
-                result = await self._run_debate(task, context or {})
+                result = await self._run_debate(task, ctx_eff)
             else:  # FASTEST
-                result = await self._run_fastest(task, context or {})
+                result = await self._run_fastest(task, ctx_eff)
         except Exception as e:
             self.log.error(f"[{self.task_id}] Orchestrator 오류: {e}")
             result = OrchestratorResult(
