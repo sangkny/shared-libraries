@@ -25,6 +25,10 @@ from .context_chunking import (
     chunk_prompt_for_model,
     estimate_text_tokens,
     trim_text_to_token_budget,
+    # Step 6 — LLM 요약 레이어 (옵션 / 기본 OFF)
+    LMStudioJSONSummarizer,
+    llm_summary_layer_enabled,
+    trim_text_with_llm_summary,
 )
 
 
@@ -155,12 +159,24 @@ class ReviewerAgent(BaseAgent):
             _orig_task_tokens = estimate_text_tokens(task)
             _trim_info: dict | None = None
             if _orig_task_tokens > _budget:
-                task, _trim_info = trim_text_to_token_budget(
-                    task, max_tokens=_budget
+                # Step 6 — LLM_SUMMARY_LAYER_ENABLED=1 이고 LM Studio 가 닿으면
+                # 결정적 trim 위에 LLM 1-call 요약을 옵션으로 끼운다. 환경 OFF
+                # 또는 LLM 호출 실패 시 결정적 trim 결과를 그대로 사용한다.
+                _summarizer = (
+                    LMStudioJSONSummarizer()
+                    if llm_summary_layer_enabled()
+                    else None
+                )
+                task, _trim_info = await trim_text_with_llm_summary(
+                    task,
+                    max_tokens=_budget,
+                    summarizer=_summarizer,
+                    hint=f"Reviewer task — domain={getattr(self.domain, 'value', self.domain)}",
                 )
                 self.log.info(
                     "[%s] reviewer_task_trimmed model=%s pre_tokens=%d post_tokens=%d "
-                    "dropped=%d fallback=%s budget=%d",
+                    "dropped=%d fallback=%s budget=%d llm_summary_used=%s "
+                    "llm_summary_attempted=%s llm_summary_error=%s",
                     self.task_id,
                     _model_label,
                     _trim_info["pre_tokens"],
@@ -168,6 +184,9 @@ class ReviewerAgent(BaseAgent):
                     _trim_info["dropped_tokens"],
                     _trim_info["fallback"],
                     _trim_info["budget"],
+                    _trim_info.get("llm_summary_used", False),
+                    _trim_info.get("llm_summary_attempted", False),
+                    _trim_info.get("llm_summary_error", ""),
                 )
 
             _analysis = analyze_prompt_for_model(task, model=_model_label)
@@ -197,6 +216,12 @@ class ReviewerAgent(BaseAgent):
                         ),
                         "trim_fallback": (_trim_info or {}).get("fallback", "none"),
                         "trim_applied": _trim_info is not None,
+                        "llm_summary_used": (_trim_info or {}).get(
+                            "llm_summary_used", False
+                        ),
+                        "llm_summary_attempted": (_trim_info or {}).get(
+                            "llm_summary_attempted", False
+                        ),
                     },
                 ),
             )

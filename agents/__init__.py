@@ -54,6 +54,15 @@ from .context_chunking import (
     split_sentences,
     summarize_conversation_history,
     trim_text_to_token_budget,
+    # Step 6 — LLM 요약 레이어 (옵션, 기본 OFF)
+    LLMSummarizer,
+    LMStudioJSONSummarizer,
+    NoopLLMSummarizer,
+    compress_conversation_history_with_llm_summary,
+    llm_summary_layer_enabled,
+    llm_summary_max_tokens,
+    llm_summary_trigger,
+    trim_text_with_llm_summary,
 )
 
 __all__ = [
@@ -112,4 +121,13 @@ __all__ = [
     "run_chunked_prompt",
     "summarize_conversation_history",
     "trim_text_to_token_budget",
+    # Step 6
+    "LLMSummarizer",
+    "LMStudioJSONSummarizer",
+    "NoopLLMSummarizer",
+    "compress_conversation_history_with_llm_summary",
+    "llm_summary_layer_enabled",
+    "llm_summary_max_tokens",
+    "llm_summary_trigger",
+    "trim_text_with_llm_summary",
 ]

@@ -1474,6 +1474,319 @@ def context_chunked(
     return decorator
 
 
+# ════════════════════════════════════════════════════════════
+# Step 6 — LLM 요약 레이어 (옵션 / 기본 OFF)
+# ════════════════════════════════════════════════════════════
+# Step 3 의 결정적 trim 위에 LLM 1-call 요약을 옵션으로 끼워 넣는다.
+# 결정 원칙:
+#   1) 기본 OFF — LLM_SUMMARY_LAYER_ENABLED=1 이어야 활성
+#   2) 결정적 trim 결과를 항상 fallback 으로 보존 — LLM 호출이 실패해도 거동 유지
+#   3) "정말로 의미있는 압축이 필요한 경우만" 호출 — fallback='chars' 트리거 기본값
+#   4) Summarizer 의존성을 외부 주입(Protocol)로 두어 unit test 가 mocking 쉽다
+#
+# 관련 환경변수 (env-reference 와 일치):
+#   - LLM_SUMMARY_LAYER_ENABLED : 0/1, 기본 0
+#   - LLM_SUMMARY_TRIGGER       : "chars" | "sentence" | "always", 기본 "chars"
+#   - LLM_SUMMARY_MAX_TOKENS    : 요약 결과 토큰 상한, 기본 512
+#   - LLM_SUMMARY_MODEL         : LM Studio 모델 ID, 기본 google/gemma-4-e4b (light)
+#   - LLM_SUMMARY_BASE_URL      : LM Studio 베이스 URL, 기본 호스트 LM Studio
+#   - LLM_SUMMARY_TIMEOUT       : HTTP timeout 초, 기본 30
+
+
+def llm_summary_layer_enabled() -> bool:
+    """``LLM_SUMMARY_LAYER_ENABLED=1`` 일 때만 True (기본 OFF — 점진적 도입)."""
+    return os.getenv("LLM_SUMMARY_LAYER_ENABLED", "0").strip() in {"1", "true", "TRUE", "yes"}
+
+
+def llm_summary_max_tokens(default: int = 512) -> int:
+    try:
+        return max(64, int(os.getenv("LLM_SUMMARY_MAX_TOKENS", str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def llm_summary_trigger() -> str:
+    """LLM 요약을 시도할 조건: ``chars`` | ``sentence`` | ``always`` (기본 ``chars``)."""
+    raw = (os.getenv("LLM_SUMMARY_TRIGGER", "chars") or "").strip().lower()
+    return raw if raw in {"chars", "sentence", "always"} else "chars"
+
+
+class LLMSummarizer:
+    """LLM 1-call 요약기 Protocol.
+
+    실제 구현체는 ``LMStudioJSONSummarizer`` 또는 호출자가 만드는 Mock.
+    Protocol 자체를 Python ``typing.Protocol`` 로 두지 않고 클래스로 둔 이유:
+    instanceof 검사 + duck typing 양쪽을 동시에 지원하기 위함.
+    """
+
+    async def summarize(
+        self,
+        *,
+        text: str,
+        max_tokens: int,
+        hint: str | None = None,
+    ) -> str:
+        raise NotImplementedError
+
+
+class NoopLLMSummarizer(LLMSummarizer):
+    """LLM 호출 없이 입력 그대로 반환 (테스트/안전 fallback)."""
+
+    async def summarize(
+        self, *, text: str, max_tokens: int, hint: str | None = None
+    ) -> str:
+        return text or ""
+
+
+class LMStudioJSONSummarizer(LLMSummarizer):
+    """LM Studio /v1/chat/completions 어댑터 (httpx 사용).
+
+    의존성 ``httpx`` 가 없으면 RuntimeError. dev 환경 기본값으로 컨테이너 호스트의
+    LM Studio (``host.docker.internal:8000/v1``) 와 ``google/gemma-4-e4b`` (light)
+    를 쓰며, 환경변수로 모두 덮어쓸 수 있다.
+    """
+
+    def __init__(
+        self,
+        *,
+        model: str | None = None,
+        base_url: str | None = None,
+        timeout: float | None = None,
+        api_key: str | None = None,
+    ) -> None:
+        self.model = model or os.getenv("LLM_SUMMARY_MODEL", "google/gemma-4-e4b")
+        self.base_url = (
+            base_url
+            or os.getenv("LLM_SUMMARY_BASE_URL", "http://host.docker.internal:8000/v1")
+        ).rstrip("/")
+        try:
+            self.timeout = float(timeout if timeout is not None else os.getenv("LLM_SUMMARY_TIMEOUT", "30"))
+        except (TypeError, ValueError):
+            self.timeout = 30.0
+        self.api_key = api_key or os.getenv("LLM_SUMMARY_API_KEY", "lm-studio")
+
+    async def summarize(
+        self, *, text: str, max_tokens: int, hint: str | None = None
+    ) -> str:
+        try:
+            import httpx
+        except ImportError as exc:
+            raise RuntimeError(
+                "LMStudioJSONSummarizer 는 httpx 가 필요합니다 "
+                "(pip install httpx)"
+            ) from exc
+
+        system = (
+            "당신은 의미 손실 없이 입력 텍스트를 압축하는 요약 도우미다.\n"
+            "- 사실/숫자/명사/도메인 용어는 우선 보존한다.\n"
+            "- 단순 반복/패딩/장식 문구는 한 줄로 압축한다.\n"
+            "- 출력은 평문(prose) 본문만 — 인사·사족·번호 매김 금지."
+        )
+        if hint:
+            system += f"\n- 컨텍스트 힌트: {hint}"
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            r = await client.post(
+                f"{self.base_url}/chat/completions",
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": text},
+                    ],
+                    "max_tokens": int(max_tokens),
+                    "temperature": 0.2,
+                },
+                headers={"Authorization": f"Bearer {self.api_key}"},
+            )
+            r.raise_for_status()
+            data = r.json()
+            choices = data.get("choices") or []
+            if not choices:
+                return ""
+            msg = (choices[0] or {}).get("message") or {}
+            return str(msg.get("content") or "").strip()
+
+
+def _should_attempt_llm_summary(fallback: str) -> bool:
+    """현재 trigger 정책과 trim 결과의 fallback 값으로 LLM 요약 시도 여부 판정."""
+    trig = llm_summary_trigger()
+    if trig == "always":
+        return True
+    if trig == "sentence":
+        return fallback in {"sentence", "chars"}
+    return fallback == "chars"
+
+
+async def trim_text_with_llm_summary(
+    text: str,
+    *,
+    max_tokens: int,
+    summarizer: LLMSummarizer | None = None,
+    head_ratio: float = 0.7,
+    tail_ratio: float = 0.25,
+    hint: str | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """결정적 trim 위에 LLM 1-call 요약을 옵션으로 끼우는 보호된 헬퍼.
+
+    동작:
+        1. ``trim_text_to_token_budget`` 으로 먼저 절단 (보장된 결정적 결과 확보)
+        2. ``LLM_SUMMARY_LAYER_ENABLED=1`` 이고 ``summarizer`` 가 주어지면
+           ``LLM_SUMMARY_TRIGGER`` 기준으로 요약 시도
+        3. 성공 시 요약 결과를 ``max_tokens`` 안으로 다시 trim 해서 반환
+        4. 실패/비활성/예산 통과 시 결정적 trim 결과 그대로 반환 (graceful degrade)
+
+    Returns:
+        ``(text, info)`` — info 는 ``trim_text_to_token_budget`` 의 키에
+        ``llm_summary_attempted`` / ``llm_summary_used`` / ``llm_summary_error`` /
+        ``llm_summary_pre_tokens`` 키를 추가한다.
+    """
+    trimmed, info = trim_text_to_token_budget(
+        text,
+        max_tokens=max_tokens,
+        head_ratio=head_ratio,
+        tail_ratio=tail_ratio,
+    )
+    info.setdefault("llm_summary_attempted", False)
+    info.setdefault("llm_summary_used", False)
+    info.setdefault("llm_summary_error", "")
+    info.setdefault("llm_summary_pre_tokens", info.get("post_tokens", 0))
+
+    if not llm_summary_layer_enabled() or summarizer is None:
+        return trimmed, info
+    if not info.get("trimmed"):
+        return trimmed, info
+    if not _should_attempt_llm_summary(str(info.get("fallback", "none"))):
+        return trimmed, info
+
+    target = max(64, min(int(max_tokens), llm_summary_max_tokens()))
+    info["llm_summary_attempted"] = True
+    try:
+        summary = await summarizer.summarize(text=text, max_tokens=target, hint=hint)
+    except Exception as exc:
+        info["llm_summary_error"] = type(exc).__name__
+        logger.warning(
+            "trim_text_with_llm_summary: summarizer 실패(%s) — 결정적 결과 유지",
+            exc,
+        )
+        return trimmed, info
+
+    summary = (summary or "").strip()
+    if not summary:
+        info["llm_summary_error"] = "empty_response"
+        return trimmed, info
+
+    post = estimate_text_tokens(summary)
+    if post > max_tokens:
+        summary, _ = trim_text_to_token_budget(summary, max_tokens=max_tokens)
+        post = estimate_text_tokens(summary)
+
+    info.update(
+        {
+            "llm_summary_used": True,
+            "post_tokens": post,
+            "dropped_tokens": max(0, int(info.get("pre_tokens", 0)) - post),
+            "trimmed": True,
+            "fallback": "llm_summary",
+        }
+    )
+    return summary, info
+
+
+async def compress_conversation_history_with_llm_summary(
+    messages: Sequence[Any],
+    *,
+    max_tokens: int = 12_000,
+    preserve_recent: int = 5,
+    summarizer: LLMSummarizer | None = None,
+    hint: str | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """``compress_conversation_history`` 의 LLM 요약 확장.
+
+    동작:
+        1. ``compress_conversation_history`` 로 결정적 직렬화 (최근 N턴 보존 + 스텁)
+        2. 결과 토큰 추정이 ``max_tokens`` 이하면 결정적 결과 그대로 반환
+        3. 초과 + 환경 ON + ``summarizer`` 있으면 LLM 1-call 요약 시도
+        4. 실패 시 결정적 결과를 ``trim_text_to_token_budget`` 로 절단해 반환
+
+    Returns:
+        ``(text, info)`` — info 키:
+            ``pre_tokens`` / ``post_tokens`` / ``llm_summary_attempted`` /
+            ``llm_summary_used`` / ``llm_summary_error`` / ``fallback``.
+    """
+    raw = compress_conversation_history(
+        messages,
+        max_tokens=max_tokens,
+        preserve_recent=preserve_recent,
+    )
+    pre = estimate_text_tokens(raw)
+    info: dict[str, Any] = {
+        "pre_tokens": pre,
+        "post_tokens": pre,
+        "trimmed": False,
+        "fallback": "deterministic",
+        "llm_summary_attempted": False,
+        "llm_summary_used": False,
+        "llm_summary_error": "",
+    }
+    if pre <= max_tokens:
+        return raw, info
+
+    if not llm_summary_layer_enabled() or summarizer is None:
+        # 환경 OFF — 결정적 결과를 최종 trim 으로만 강제 압축
+        trimmed, t_info = trim_text_to_token_budget(raw, max_tokens=max_tokens)
+        info.update(
+            post_tokens=t_info["post_tokens"],
+            trimmed=t_info["trimmed"],
+            fallback=f"deterministic_trim_{t_info['fallback']}",
+        )
+        return trimmed, info
+
+    target = max(64, min(int(max_tokens), llm_summary_max_tokens()))
+    info["llm_summary_attempted"] = True
+    try:
+        summary = await summarizer.summarize(
+            text=raw,
+            max_tokens=target,
+            hint=hint
+            or "Multi-turn conversation summary — preserve recent turns and key intent.",
+        )
+    except Exception as exc:
+        info["llm_summary_error"] = type(exc).__name__
+        trimmed, t_info = trim_text_to_token_budget(raw, max_tokens=max_tokens)
+        info.update(
+            post_tokens=t_info["post_tokens"],
+            trimmed=t_info["trimmed"],
+            fallback=f"deterministic_trim_{t_info['fallback']}",
+        )
+        return trimmed, info
+
+    summary = (summary or "").strip()
+    if not summary:
+        info["llm_summary_error"] = "empty_response"
+        trimmed, t_info = trim_text_to_token_budget(raw, max_tokens=max_tokens)
+        info.update(
+            post_tokens=t_info["post_tokens"],
+            trimmed=t_info["trimmed"],
+            fallback=f"deterministic_trim_{t_info['fallback']}",
+        )
+        return trimmed, info
+
+    post = estimate_text_tokens(summary)
+    if post > max_tokens:
+        summary, _ = trim_text_to_token_budget(summary, max_tokens=max_tokens)
+        post = estimate_text_tokens(summary)
+    info.update(
+        {
+            "llm_summary_used": True,
+            "post_tokens": post,
+            "trimmed": True,
+            "fallback": "llm_summary",
+        }
+    )
+    return summary, info
+
+
 __all__ = [
     "CONVERSATION_LIST_KEYS",
     "DEFAULT_PRIORITY_KEYWORDS",
@@ -1502,4 +1815,12 @@ __all__ = [
     "semantic_chunking_with_overlap",
     "split_sentences",
     "summarize_conversation_history",
+    "LLMSummarizer",
+    "LMStudioJSONSummarizer",
+    "NoopLLMSummarizer",
+    "compress_conversation_history_with_llm_summary",
+    "llm_summary_layer_enabled",
+    "llm_summary_max_tokens",
+    "llm_summary_trigger",
+    "trim_text_with_llm_summary",
 ]

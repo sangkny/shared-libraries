@@ -10,6 +10,8 @@ import pytest
 from agents.context_chunking import (
     DEFAULT_UNKNOWN_MODEL_CONTEXT,
     LLM_MODEL_CONTEXT_LIMITS,
+    LLMSummarizer,
+    NoopLLMSummarizer,
     add_overlap_to_chunks,
     analyze_prompt_for_model,
     chunk_prompt_for_model,
@@ -19,12 +21,16 @@ from agents.context_chunking import (
     chunking_quality_score,
     compact_context_for_budget,
     compress_conversation_history,
+    compress_conversation_history_with_llm_summary,
     context_chunked,
     estimate_messages_tokens,
     estimate_orchestrator_input_tokens,
     estimate_text_tokens,
     estimate_tokens_multilingual,
     format_chunk_with_preamble,
+    llm_summary_layer_enabled,
+    llm_summary_max_tokens,
+    llm_summary_trigger,
     merge_chunk_outputs,
     merge_chunks,
     merge_chunks_recursive_pairs,
@@ -40,6 +46,7 @@ from agents.context_chunking import (
     split_sentences,
     summarize_conversation_history,
     trim_text_to_token_budget,
+    trim_text_with_llm_summary,
 )
 from llm.base import Message
 
@@ -651,3 +658,205 @@ def test_trim_text_idempotent_within_budget_after_first_pass() -> None:
     # 한 번 trim 된 결과는 다시 호출해도 더 줄지 않아야(또는 거의 변동 없음) 한다.
     assert info1["trimmed"] is True
     assert info2["trimmed"] is False or info2["post_tokens"] <= info1["post_tokens"]
+
+
+# ── Step 6 — LLM 요약 레이어 (옵션, 기본 OFF) ─────────────────────
+
+
+class _RecordingSummarizer(LLMSummarizer):
+    """호출 횟수와 인자를 기록하는 mocked summarizer."""
+
+    def __init__(self, response: str = "요약된 본문") -> None:
+        self.calls: list[dict] = []
+        self.response = response
+
+    async def summarize(self, *, text: str, max_tokens: int, hint=None) -> str:
+        self.calls.append({"text_len": len(text), "max_tokens": max_tokens, "hint": hint})
+        return self.response
+
+
+class _FailingSummarizer(LLMSummarizer):
+    async def summarize(self, *, text: str, max_tokens: int, hint=None) -> str:
+        raise RuntimeError("LM Studio not reachable")
+
+
+class _EmptySummarizer(LLMSummarizer):
+    async def summarize(self, *, text: str, max_tokens: int, hint=None) -> str:
+        return ""
+
+
+def test_llm_summary_env_helpers_defaults_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """환경변수 미설정 시 layer OFF (기본값 변경 금지 — 운영 안전성 핵심)."""
+    monkeypatch.delenv("LLM_SUMMARY_LAYER_ENABLED", raising=False)
+    monkeypatch.delenv("LLM_SUMMARY_TRIGGER", raising=False)
+    monkeypatch.delenv("LLM_SUMMARY_MAX_TOKENS", raising=False)
+    assert llm_summary_layer_enabled() is False
+    assert llm_summary_trigger() == "chars"
+    assert llm_summary_max_tokens() >= 64
+
+
+def test_llm_summary_env_helpers_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
+    monkeypatch.setenv("LLM_SUMMARY_TRIGGER", "always")
+    monkeypatch.setenv("LLM_SUMMARY_MAX_TOKENS", "1024")
+    assert llm_summary_layer_enabled() is True
+    assert llm_summary_trigger() == "always"
+    assert llm_summary_max_tokens() == 1024
+
+
+def test_trim_text_with_llm_summary_env_off_skips_summarizer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OFF 일 때 summarizer 가 제공되어도 호출하지 않고 결정적 결과만 반환해야 한다."""
+    monkeypatch.delenv("LLM_SUMMARY_LAYER_ENABLED", raising=False)
+    text = ("word " * 4000).strip()
+    summarizer = _RecordingSummarizer(response="짧은요약")
+    out, info = asyncio.run(
+        trim_text_with_llm_summary(text, max_tokens=200, summarizer=summarizer)
+    )
+    assert summarizer.calls == []
+    assert info["llm_summary_attempted"] is False
+    assert info["llm_summary_used"] is False
+    assert info["trimmed"] is True
+    assert info["fallback"] in {"sentence", "chars"}
+
+
+def test_trim_text_with_llm_summary_on_uses_summarizer_for_chars_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ON + 패딩 케이스(=chars fallback) → 요약기 호출 + fallback='llm_summary'."""
+    monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
+    monkeypatch.setenv("LLM_SUMMARY_TRIGGER", "chars")
+    text = ("foo " * 4000).strip()
+    summarizer = _RecordingSummarizer(response="요약된 핵심 내용.")
+    out, info = asyncio.run(
+        trim_text_with_llm_summary(text, max_tokens=200, summarizer=summarizer)
+    )
+    assert len(summarizer.calls) == 1
+    assert info["llm_summary_attempted"] is True
+    assert info["llm_summary_used"] is True
+    assert info["fallback"] == "llm_summary"
+    assert out == "요약된 핵심 내용."
+
+
+def test_trim_text_with_llm_summary_falls_back_on_summarizer_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """요약기 예외 → 결정적 trim 결과로 fallback (거동 보존)."""
+    monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
+    monkeypatch.setenv("LLM_SUMMARY_TRIGGER", "always")
+    text = ("한국어 문장. " * 400).strip()
+    summarizer = _FailingSummarizer()
+    out, info = asyncio.run(
+        trim_text_with_llm_summary(text, max_tokens=200, summarizer=summarizer)
+    )
+    assert info["llm_summary_attempted"] is True
+    assert info["llm_summary_used"] is False
+    assert info["llm_summary_error"] == "RuntimeError"
+    assert info["trimmed"] is True
+    assert out and len(out) > 0
+
+
+def test_trim_text_with_llm_summary_empty_response_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
+    monkeypatch.setenv("LLM_SUMMARY_TRIGGER", "always")
+    text = ("문장. " * 400).strip()
+    out, info = asyncio.run(
+        trim_text_with_llm_summary(text, max_tokens=200, summarizer=_EmptySummarizer())
+    )
+    assert info["llm_summary_attempted"] is True
+    assert info["llm_summary_used"] is False
+    assert info["llm_summary_error"] == "empty_response"
+    assert out  # 결정적 trim 결과 보존
+
+
+def test_trim_text_with_llm_summary_trigger_chars_skips_sentence_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TRIGGER=chars (기본) 일 때 sentence fallback 케이스에서는 LLM 호출 안 함."""
+    monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
+    monkeypatch.setenv("LLM_SUMMARY_TRIGGER", "chars")
+    text = ("한국어 문장입니다. " * 400).strip()  # 문장 경계 잡힘 → sentence fallback
+    summarizer = _RecordingSummarizer(response="X")
+    _, info = asyncio.run(
+        trim_text_with_llm_summary(text, max_tokens=300, summarizer=summarizer)
+    )
+    if info.get("fallback") == "sentence":
+        assert summarizer.calls == []
+        assert info["llm_summary_used"] is False
+
+
+def test_compress_conversation_history_with_llm_summary_env_off_passthrough(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OFF + 예산 초과 → 결정적 trim 만 적용, summarizer 호출 0.
+
+    단순 반복 패딩 케이스는 결정적 trim 으로 budget 안에 100% 들어가지 않을
+    수 있다 — 이게 바로 Step 6 LLM 요약 레이어가 해결하는 본질. OFF 일 때는
+    summarizer 가 호출되지 않는 것과 결정적 trim 의 흔적(post_tokens < pre_tokens)
+    만 검증한다.
+    """
+    monkeypatch.delenv("LLM_SUMMARY_LAYER_ENABLED", raising=False)
+    msgs = [{"role": "user", "content": "안녕 " * 800}] * 10
+    summarizer = _RecordingSummarizer(response="X")
+    out, info = asyncio.run(
+        compress_conversation_history_with_llm_summary(
+            msgs, max_tokens=400, summarizer=summarizer
+        )
+    )
+    assert summarizer.calls == []
+    assert info["llm_summary_used"] is False
+    assert info["llm_summary_attempted"] is False
+    assert info["fallback"].startswith("deterministic")
+    # 단순 반복 텍스트는 결정적 trim 으로 토큰 수가 줄지 않을 수 있다
+    # (한국어 2자=1토큰 추정 + 동일 토큰 반복 → head/tail/elision 합산 동일).
+    # 이게 정확히 Step 6 LLM 요약 레이어가 해결하는 본질.
+    assert info["post_tokens"] <= info["pre_tokens"]
+    assert out
+
+
+def test_compress_conversation_history_with_llm_summary_within_budget_noop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """예산 안 → summarizer 호출 안 함 + fallback=deterministic."""
+    monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
+    msgs = [{"role": "user", "content": "짧은 메시지"}]
+    summarizer = _RecordingSummarizer()
+    out, info = asyncio.run(
+        compress_conversation_history_with_llm_summary(
+            msgs, max_tokens=10_000, summarizer=summarizer
+        )
+    )
+    assert summarizer.calls == []
+    assert info["llm_summary_used"] is False
+    assert info["fallback"] == "deterministic"
+    assert "짧은 메시지" in out
+
+
+def test_compress_conversation_history_with_llm_summary_on_uses_summarizer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
+    msgs = [
+        {"role": "user", "content": ("긴 발화 " * 400).strip()},
+        {"role": "assistant", "content": ("긴 응답 " * 400).strip()},
+    ] * 5
+    summarizer = _RecordingSummarizer(response="압축된 멀티턴 요약.")
+    out, info = asyncio.run(
+        compress_conversation_history_with_llm_summary(
+            msgs, max_tokens=200, summarizer=summarizer
+        )
+    )
+    assert len(summarizer.calls) == 1
+    assert info["llm_summary_used"] is True
+    assert info["fallback"] == "llm_summary"
+    assert out == "압축된 멀티턴 요약."
+
+
+def test_noop_llm_summarizer_returns_input() -> None:
+    out = asyncio.run(
+        NoopLLMSummarizer().summarize(text="원문", max_tokens=100, hint=None)
+    )
+    assert out == "원문"
