@@ -20,6 +20,7 @@ from .saas_metrics import (
     inc_saas_call,
     inc_saas_plan_transition,
     inc_saas_quota_blocked,
+    inc_saas_stripe_revenue,
     inc_saas_stripe_webhook,
     set_saas_active_subscribers,
     set_saas_monthly_revenue,
@@ -36,11 +37,12 @@ __all__ = [
     "observe_chunking_duration",
     "observe_chunking_snapshot",
     "render_prometheus_text",
-    # SaaS billing (C Week 3 Day 3)
+    # SaaS billing (C Week 3 Day 3 / B-7 Round 2 D2)
     "inc_saas_call",
     "inc_saas_quota_blocked",
     "inc_saas_plan_transition",
     "inc_saas_stripe_webhook",
+    "inc_saas_stripe_revenue",
     "set_saas_active_subscribers",
     "set_saas_monthly_revenue",
 ]

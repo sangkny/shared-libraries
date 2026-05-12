@@ -15,6 +15,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -98,6 +99,20 @@ def make_stripe_models(Base, table_prefix: str = ""):
         )
         cancel_at_period_end: Mapped[bool] = mapped_column(
             Boolean, nullable=False, default=False,
+        )
+
+        # B-7 Round 2 — invoice / refund 메타데이터
+        last_paid_at: Mapped[datetime | None] = mapped_column(
+            DateTime(timezone=True), nullable=True,
+            comment="가장 최근 invoice.paid 시각",
+        )
+        last_paid_amount_cents: Mapped[int | None] = mapped_column(
+            BigInteger, nullable=True,
+            comment="가장 최근 invoice.paid 금액 (cents, Stripe ``amount_paid``)",
+        )
+        last_failure_at: Mapped[datetime | None] = mapped_column(
+            DateTime(timezone=True), nullable=True,
+            comment="가장 최근 invoice.payment_failed 시각",
         )
 
         created_at: Mapped[datetime] = mapped_column(

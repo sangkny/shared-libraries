@@ -128,9 +128,15 @@ def test_parse_event_live_missing_signature_raises() -> None:
 # ── 지원 이벤트 집합 ────────────────────────────────────────
 
 
-def test_supported_events_only_three() -> None:
+def test_supported_events_includes_round1_and_round2() -> None:
+    """B-7 Round 2 (2026-05-13) — invoice/refund 3종 추가."""
     assert STRIPE_SUPPORTED_EVENTS == {
+        # Round 1
         "checkout.session.completed",
         "customer.subscription.updated",
         "customer.subscription.deleted",
+        # Round 2
+        "invoice.paid",
+        "invoice.payment_failed",
+        "charge.refunded",
     }

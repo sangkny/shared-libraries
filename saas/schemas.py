@@ -186,3 +186,17 @@ class StripeStatusResponse(BaseModel):
     enabled: bool
     public_key: str | None = None
     supported_events: list[str]
+
+
+# ── Stripe Customer Portal (B-7 Round 2) ─────────────────────
+
+
+class StripePortalRequest(BaseModel):
+    """Customer Portal session 생성 요청 — 활성 sub 1개 가정."""
+
+    return_url: str | None = Field(default=None, max_length=500)
+
+
+class StripePortalResponse(BaseModel):
+    session_id: str
+    url: str

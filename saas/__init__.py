@@ -37,6 +37,8 @@ from .schemas import (
     StripeCheckoutResponse,
     StripePlanMappingOut,
     StripePlanMappingRequest,
+    StripePortalRequest,
+    StripePortalResponse,
     StripeStatusResponse,
     StripeWebhookResponse,
     SubscribeRequest,
@@ -96,6 +98,8 @@ __all__ = [
     "StripeCheckoutResponse",
     "StripePlanMappingRequest",
     "StripePlanMappingOut",
+    "StripePortalRequest",
+    "StripePortalResponse",
     "StripeStatusResponse",
     "StripeWebhookResponse",
 ]

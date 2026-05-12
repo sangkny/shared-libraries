@@ -10,13 +10,22 @@
     - **테스트 친화** — ``parse_event`` 가 dict 를 받도록 분리. 서명 검증은 옵션
       (live 모드만). 단위 테스트는 dict payload 직접 주입.
 
-지원 이벤트 (1라운드):
+지원 이벤트:
+    Round 1
     - ``checkout.session.completed`` — 구독 시작
     - ``customer.subscription.updated`` — 상태/주기 갱신
     - ``customer.subscription.deleted`` — 구독 종료
 
-미지원 (백로그):
-    - invoice.* (인보이스 다운로드), customer.* (포털), refund, coupon
+    Round 2 (E-R2 이후)
+    - ``invoice.paid`` — 결제 성공 → ``saas_stripe_revenue_usd_total`` 누적
+    - ``invoice.payment_failed`` — 결제 실패 → 알림용 카운터
+    - ``charge.refunded`` — 환불 → 매출 차감 카운터
+
+Customer Portal (B-7 Round 2):
+    Stripe 가 제공하는 self-serve 포털로 결제수단 변경/취소/인보이스 조회 가능.
+    ``create_portal_session`` 가 redirect URL 을 반환.
+
+미지원 (백로그): metered billing (usage_records send), coupon, tax_id 자동 수집.
 """
 from __future__ import annotations
 
@@ -52,6 +61,26 @@ def _emit_stripe_webhook(
         pass
 
 
+def _emit_stripe_revenue(
+    service_name: str | None, amount_usd: float, direction: str = "paid"
+) -> None:
+    """Prometheus ``saas_stripe_revenue_usd_total`` (best-effort).
+
+    ``direction`` ∈ {"paid", "refunded"}. paid 는 +, refunded 는 + (label 로 구분).
+    Net revenue 는 Grafana 에서 ``sum(paid) - sum(refunded)`` 로 계산.
+    """
+    if not service_name:
+        return
+    try:
+        from observability import inc_saas_stripe_revenue
+
+        inc_saas_stripe_revenue(
+            service=service_name, amount_usd=float(amount_usd), direction=direction
+        )
+    except Exception:
+        pass
+
+
 class StripeDisabled(Exception):
     """``STRIPE_ENABLED=0`` 또는 키 미설정 — 라우트는 503 반환."""
 
@@ -60,11 +89,15 @@ class StripeSignatureError(Exception):
     """Webhook ``Stripe-Signature`` 헤더 검증 실패 — 라우트는 400 반환."""
 
 
-# 지원 이벤트 (1라운드)
+# 지원 이벤트 (Round 1 + Round 2)
 SUPPORTED_EVENTS: frozenset[str] = frozenset({
     "checkout.session.completed",
     "customer.subscription.updated",
     "customer.subscription.deleted",
+    # B-7 Round 2 추가
+    "invoice.paid",
+    "invoice.payment_failed",
+    "charge.refunded",
 })
 
 
@@ -250,6 +283,12 @@ class StripeService:
             action = await self._handle_subscription_updated(db, obj)
         elif etype == "customer.subscription.deleted":
             action = await self._handle_subscription_deleted(db, obj)
+        elif etype == "invoice.paid":
+            action = await self._handle_invoice_paid(db, obj)
+        elif etype == "invoice.payment_failed":
+            action = await self._handle_invoice_failed(db, obj)
+        elif etype == "charge.refunded":
+            action = await self._handle_charge_refunded(db, obj)
         else:  # pragma: no cover
             action = "ignored"
 
@@ -375,6 +414,133 @@ class StripeService:
         side.cancel_at_period_end = False
         await db.flush()
         return "canceled"
+
+    # ── Round 2: invoice / refund 이벤트 ─────────────────────────
+
+    async def _handle_invoice_paid(
+        self, db: AsyncSession, obj: dict[str, Any]
+    ) -> str:
+        """``invoice.paid`` — 결제 성공. sidecar 의 ``last_paid_at`` 갱신 +
+        Prometheus ``saas_stripe_revenue_usd_total{direction="paid"}`` 누적.
+
+        Stripe ``invoice`` 의 ``amount_paid`` 는 cents 단위. ``currency`` 는
+        ISO 코드 (lowercase). 본 라운드는 USD 만 누적 (멀티 통화는 R3 백로그).
+        """
+        sub_id_stripe = str(obj.get("subscription") or "")
+        amount_cents = int(obj.get("amount_paid") or 0)
+        currency = str(obj.get("currency") or "usd").lower()
+        if amount_cents <= 0:
+            return "no_amount"
+
+        usd = amount_cents / 100.0 if currency == "usd" else 0.0
+        _emit_stripe_revenue(
+            getattr(self.billing, "service_name", None), usd, direction="paid"
+        )
+
+        if sub_id_stripe:
+            side = await db.scalar(
+                select(self.StripeSub).where(
+                    self.StripeSub.stripe_subscription_id == sub_id_stripe
+                )
+            )
+            if side is not None:
+                # last_paid_at 컬럼은 sidecar v2 에서 추가 (없으면 silent)
+                if hasattr(side, "last_paid_at"):
+                    side.last_paid_at = datetime.now(timezone.utc)
+                if hasattr(side, "last_paid_amount_cents"):
+                    side.last_paid_amount_cents = amount_cents
+                await db.flush()
+
+        log.info(
+            "invoice.paid sub=%s amount_cents=%d currency=%s usd=%.2f",
+            sub_id_stripe, amount_cents, currency, usd,
+        )
+        return "paid"
+
+    async def _handle_invoice_failed(
+        self, db: AsyncSession, obj: dict[str, Any]
+    ) -> str:
+        """``invoice.payment_failed`` — 결제 실패. sidecar status 만 메모.
+
+        실제 plan 다운그레이드는 ``customer.subscription.updated`` 또는
+        ``deleted`` 가 별도로 도착하면 처리 — 본 핸들러는 카운터/로그만.
+        """
+        sub_id_stripe = str(obj.get("subscription") or "")
+        if sub_id_stripe:
+            side = await db.scalar(
+                select(self.StripeSub).where(
+                    self.StripeSub.stripe_subscription_id == sub_id_stripe
+                )
+            )
+            if side is not None and hasattr(side, "last_failure_at"):
+                side.last_failure_at = datetime.now(timezone.utc)
+                await db.flush()
+
+        log.warning("invoice.payment_failed sub=%s", sub_id_stripe)
+        return "failed"
+
+    async def _handle_charge_refunded(
+        self, db: AsyncSession, obj: dict[str, Any]
+    ) -> str:
+        """``charge.refunded`` — 환불. ``amount_refunded`` 만큼 매출 차감 카운터."""
+        amount_cents = int(obj.get("amount_refunded") or 0)
+        currency = str(obj.get("currency") or "usd").lower()
+        if amount_cents <= 0:
+            return "no_amount"
+
+        usd = amount_cents / 100.0 if currency == "usd" else 0.0
+        _emit_stripe_revenue(
+            getattr(self.billing, "service_name", None),
+            usd,
+            direction="refunded",
+        )
+        log.info(
+            "charge.refunded amount_cents=%d currency=%s usd=%.2f",
+            amount_cents, currency, usd,
+        )
+        return "refunded"
+
+    # ── Round 2: Customer Portal ────────────────────────────────
+
+    async def create_portal_session(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: str,
+        return_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Stripe Customer Portal session 생성.
+
+        사용자의 활성 sidecar ``stripe_customer_id`` 를 조회 → portal URL 반환.
+        결제수단 변경 / 인보이스 조회 / 자체 취소를 사용자가 직접 처리 가능.
+
+        Raises:
+            ``StripeDisabled`` — toggle off.
+            ``ValueError`` — sidecar 없음 (구독 이력 없음).
+        """
+        self._require_enabled()
+
+        sub = await self.billing.get_active_subscription(db, user_id)
+        if sub is None:
+            raise ValueError("no_active_subscription")
+
+        side = await db.scalar(
+            select(self.StripeSub).where(self.StripeSub.subscription_id == sub.id)
+        )
+        if side is None or not getattr(side, "stripe_customer_id", None):
+            raise ValueError("no_stripe_customer")
+
+        import stripe as _stripe
+        _stripe.api_key = self.config.secret_key
+        session = _stripe.billing_portal.Session.create(
+            customer=side.stripe_customer_id,
+            return_url=return_url or self.config.default_success_url,
+        )
+        log.info(
+            "Stripe portal session: user=%s customer=%s session=%s",
+            user_id, side.stripe_customer_id, getattr(session, "id", "?"),
+        )
+        return {"id": session.id, "url": session.url}
 
     # ── Plan ↔ Stripe Price 매핑 (admin) ─────────────────────────
 

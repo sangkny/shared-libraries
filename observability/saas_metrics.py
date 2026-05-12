@@ -86,6 +86,11 @@ def _ensure_metrics() -> None:
         "Stripe webhook events received and dispatched.",
         ("service", "event_type", "action"),
     )
+    _counter(
+        "saas_stripe_revenue_usd_total",
+        "Cumulative Stripe revenue (USD). direction=paid → gross, refunded → returned.",
+        ("service", "direction"),
+    )
 
     _gauge(
         "saas_active_subscribers",
@@ -193,6 +198,26 @@ def inc_saas_stripe_webhook(
         pass
 
 
+def inc_saas_stripe_revenue(
+    *, service: str, amount_usd: float, direction: str = "paid"
+) -> None:
+    """invoice.paid / charge.refunded 처리 시 누적 (USD).
+
+    ``direction`` ∈ {``"paid"``, ``"refunded"``}.
+    Net revenue 는 Grafana 에서 ``sum(paid) - sum(refunded)`` 로 계산.
+    """
+    if not _HAS_PROM:
+        return
+    _ensure_metrics()
+    c = _REGISTERED.get("saas_stripe_revenue_usd_total")
+    if c is None or amount_usd <= 0:
+        return
+    try:
+        c.labels(service=service, direction=direction).inc(float(amount_usd))
+    except Exception:
+        pass
+
+
 def set_saas_active_subscribers(
     *, service: str, plan_code: str, count: int
 ) -> None:
@@ -228,6 +253,7 @@ __all__ = [
     "inc_saas_quota_blocked",
     "inc_saas_plan_transition",
     "inc_saas_stripe_webhook",
+    "inc_saas_stripe_revenue",
     "set_saas_active_subscribers",
     "set_saas_monthly_revenue",
 ]
