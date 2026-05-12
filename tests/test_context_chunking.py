@@ -11,8 +11,6 @@ from agents.context_chunking import (
     DEFAULT_PRIORITY_KEYWORDS,
     DEFAULT_UNKNOWN_MODEL_CONTEXT,
     LLM_MODEL_CONTEXT_LIMITS,
-    LLMSummarizer,
-    LMStudioJSONSummarizer,
     NoopLLMSummarizer,
     add_overlap_to_chunks,
     analyze_prompt_for_model,
@@ -664,28 +662,19 @@ def test_trim_text_idempotent_within_budget_after_first_pass() -> None:
 
 
 # ── Step 6 — LLM 요약 레이어 (옵션, 기본 OFF) ─────────────────────
-
-
-class _RecordingSummarizer(LLMSummarizer):
-    """호출 횟수와 인자를 기록하는 mocked summarizer."""
-
-    def __init__(self, response: str = "요약된 본문") -> None:
-        self.calls: list[dict] = []
-        self.response = response
-
-    async def summarize(self, *, text: str, max_tokens: int, hint=None) -> str:
-        self.calls.append({"text_len": len(text), "max_tokens": max_tokens, "hint": hint})
-        return self.response
-
-
-class _FailingSummarizer(LLMSummarizer):
-    async def summarize(self, *, text: str, max_tokens: int, hint=None) -> str:
-        raise RuntimeError("LM Studio not reachable")
-
-
-class _EmptySummarizer(LLMSummarizer):
-    async def summarize(self, *, text: str, max_tokens: int, hint=None) -> str:
-        return ""
+#
+# Step 8 (2026-05-12) 회고 — CURSOR_HANDOVER §"테스트 철학" 정착:
+#   - 응답을 박은 fake summarizer (`_RecordingSummarizer` / `_FailingSummarizer`
+#     / `_EmptySummarizer`) 들은 모두 제거됨. 그 자리는 환경변수 가드 + 분기
+#     동작 검증만 unit 으로 남기고, 실 호출 의존 케이스 (예외/빈응답/응답
+#     성공) 는 `tests/integration/test_real_llm_summarizer.py` 로 이관.
+#   - 본 단위 테스트의 역할은:
+#       (a) 환경변수 (`LLM_SUMMARY_LAYER_ENABLED` / `LLM_SUMMARY_TRIGGER` /
+#           `LLM_SUMMARY_MAX_TOKENS`) 파싱 정확성
+#       (b) summarizer=None / NoopLLMSummarizer 일 때의 분기 동작
+#           (호출 여부·fallback 마킹·결정적 trim 보존)
+#   - `NoopLLMSummarizer` 는 패키지 내장 진짜 클래스 (입력을 그대로 반환).
+#     "응답을 박은 fake" 가 아니므로 §"테스트 철학" 허용 패턴.
 
 
 def test_llm_summary_env_helpers_defaults_off(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -710,14 +699,18 @@ def test_llm_summary_env_helpers_on(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_trim_text_with_llm_summary_env_off_skips_summarizer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """OFF 일 때 summarizer 가 제공되어도 호출하지 않고 결정적 결과만 반환해야 한다."""
+    """env OFF → summarizer 가 제공되어도 호출되지 않아야 한다 (분기 검증).
+
+    Step 8 mock 정리: ``_RecordingSummarizer(response="짧은요약")`` 대신
+    ``NoopLLMSummarizer()`` (패키지 진짜 클래스) 를 주입한다. 본 테스트의 핵심은
+    "summarizer 가 호출되지 않는 분기" 의 동작 — env OFF 일 때는 LLM 어댑터가
+    무엇이든 ``info["llm_summary_attempted"]`` 가 False 여야 한다.
+    """
     monkeypatch.delenv("LLM_SUMMARY_LAYER_ENABLED", raising=False)
     text = ("word " * 4000).strip()
-    summarizer = _RecordingSummarizer(response="짧은요약")
-    out, info = asyncio.run(
-        trim_text_with_llm_summary(text, max_tokens=200, summarizer=summarizer)
+    _out, info = asyncio.run(
+        trim_text_with_llm_summary(text, max_tokens=200, summarizer=NoopLLMSummarizer())
     )
-    assert summarizer.calls == []
     assert info["llm_summary_attempted"] is False
     assert info["llm_summary_used"] is False
     assert info["trimmed"] is True
@@ -727,95 +720,60 @@ def test_trim_text_with_llm_summary_env_off_skips_summarizer(
 def test_trim_text_with_llm_summary_on_uses_summarizer_for_chars_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """ON + 패딩 케이스(=chars fallback) → 요약기 호출 + fallback='llm_summary'."""
+    """env ON + chars fallback → summarizer 호출 발동 (분기 검증).
+
+    Step 8 mock 정리: ``NoopLLMSummarizer`` 가 입력을 그대로 반환하므로
+    ``out`` 의 내용은 단정하지 않고, ``info`` 의 분기 마킹만 검증한다.
+    실 LM Studio 응답 형태에 대한 검증은
+    ``tests/integration/test_real_llm_summarizer.py`` 가 담당.
+    """
     monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
     monkeypatch.setenv("LLM_SUMMARY_TRIGGER", "chars")
     text = ("foo " * 4000).strip()
-    summarizer = _RecordingSummarizer(response="요약된 핵심 내용.")
     out, info = asyncio.run(
-        trim_text_with_llm_summary(text, max_tokens=200, summarizer=summarizer)
+        trim_text_with_llm_summary(text, max_tokens=200, summarizer=NoopLLMSummarizer())
     )
-    assert len(summarizer.calls) == 1
     assert info["llm_summary_attempted"] is True
     assert info["llm_summary_used"] is True
     assert info["fallback"] == "llm_summary"
-    assert out == "요약된 핵심 내용."
-
-
-def test_trim_text_with_llm_summary_falls_back_on_summarizer_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """요약기 예외 → 결정적 trim 결과로 fallback (거동 보존)."""
-    monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
-    monkeypatch.setenv("LLM_SUMMARY_TRIGGER", "always")
-    text = ("한국어 문장. " * 400).strip()
-    summarizer = _FailingSummarizer()
-    out, info = asyncio.run(
-        trim_text_with_llm_summary(text, max_tokens=200, summarizer=summarizer)
-    )
-    assert info["llm_summary_attempted"] is True
-    assert info["llm_summary_used"] is False
-    assert info["llm_summary_error"] == "RuntimeError"
-    assert info["trimmed"] is True
-    assert out and len(out) > 0
-
-
-def test_trim_text_with_llm_summary_empty_response_falls_back(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
-    monkeypatch.setenv("LLM_SUMMARY_TRIGGER", "always")
-    text = ("문장. " * 400).strip()
-    out, info = asyncio.run(
-        trim_text_with_llm_summary(text, max_tokens=200, summarizer=_EmptySummarizer())
-    )
-    assert info["llm_summary_attempted"] is True
-    assert info["llm_summary_used"] is False
-    assert info["llm_summary_error"] == "empty_response"
-    assert out  # 결정적 trim 결과 보존
+    assert isinstance(out, str)
+    assert out  # NoopLLMSummarizer 결과가 빈 문자열은 아님
 
 
 def test_trim_text_with_llm_summary_trigger_chars_skips_sentence_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """TRIGGER=chars (기본) 일 때 sentence fallback 케이스에서는 LLM 호출 안 함."""
+    """TRIGGER=chars (기본) + sentence fallback 케이스 → LLM 호출 안 함 (분기 검증)."""
     monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
     monkeypatch.setenv("LLM_SUMMARY_TRIGGER", "chars")
     text = ("한국어 문장입니다. " * 400).strip()  # 문장 경계 잡힘 → sentence fallback
-    summarizer = _RecordingSummarizer(response="X")
     _, info = asyncio.run(
-        trim_text_with_llm_summary(text, max_tokens=300, summarizer=summarizer)
+        trim_text_with_llm_summary(text, max_tokens=300, summarizer=NoopLLMSummarizer())
     )
     if info.get("fallback") == "sentence":
-        assert summarizer.calls == []
+        assert info["llm_summary_attempted"] is False
         assert info["llm_summary_used"] is False
 
 
 def test_compress_conversation_history_with_llm_summary_env_off_passthrough(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """OFF + 예산 초과 → 결정적 trim 만 적용, summarizer 호출 0.
+    """OFF + 예산 초과 → 결정적 trim 만, summarizer 호출 0 (분기 검증).
 
     단순 반복 패딩 케이스는 결정적 trim 으로 budget 안에 100% 들어가지 않을
-    수 있다 — 이게 바로 Step 6 LLM 요약 레이어가 해결하는 본질. OFF 일 때는
-    summarizer 가 호출되지 않는 것과 결정적 trim 의 흔적(post_tokens < pre_tokens)
-    만 검증한다.
+    수 있다 — 이게 Step 6 LLM 요약 레이어가 해결하는 본질. OFF 일 때는
+    summarizer 가 호출되지 않는 것과 결정적 trim 의 흔적만 검증한다.
     """
     monkeypatch.delenv("LLM_SUMMARY_LAYER_ENABLED", raising=False)
     msgs = [{"role": "user", "content": "안녕 " * 800}] * 10
-    summarizer = _RecordingSummarizer(response="X")
     out, info = asyncio.run(
         compress_conversation_history_with_llm_summary(
-            msgs, max_tokens=400, summarizer=summarizer
+            msgs, max_tokens=400, summarizer=NoopLLMSummarizer()
         )
     )
-    assert summarizer.calls == []
     assert info["llm_summary_used"] is False
     assert info["llm_summary_attempted"] is False
     assert info["fallback"].startswith("deterministic")
-    # 단순 반복 텍스트는 결정적 trim 으로 토큰 수가 줄지 않을 수 있다
-    # (한국어 2자=1토큰 추정 + 동일 토큰 반복 → head/tail/elision 합산 동일).
-    # 이게 정확히 Step 6 LLM 요약 레이어가 해결하는 본질.
     assert info["post_tokens"] <= info["pre_tokens"]
     assert out
 
@@ -823,17 +781,16 @@ def test_compress_conversation_history_with_llm_summary_env_off_passthrough(
 def test_compress_conversation_history_with_llm_summary_within_budget_noop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """예산 안 → summarizer 호출 안 함 + fallback=deterministic."""
+    """예산 안 → summarizer 호출 안 함 + fallback=deterministic (분기 검증)."""
     monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
     msgs = [{"role": "user", "content": "짧은 메시지"}]
-    summarizer = _RecordingSummarizer()
     out, info = asyncio.run(
         compress_conversation_history_with_llm_summary(
-            msgs, max_tokens=10_000, summarizer=summarizer
+            msgs, max_tokens=10_000, summarizer=NoopLLMSummarizer()
         )
     )
-    assert summarizer.calls == []
     assert info["llm_summary_used"] is False
+    assert info["llm_summary_attempted"] is False
     assert info["fallback"] == "deterministic"
     assert "짧은 메시지" in out
 
@@ -841,21 +798,22 @@ def test_compress_conversation_history_with_llm_summary_within_budget_noop(
 def test_compress_conversation_history_with_llm_summary_on_uses_summarizer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """env ON + 예산 초과 → summarizer 호출 발동 (분기 검증)."""
     monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
     msgs = [
         {"role": "user", "content": ("긴 발화 " * 400).strip()},
         {"role": "assistant", "content": ("긴 응답 " * 400).strip()},
     ] * 5
-    summarizer = _RecordingSummarizer(response="압축된 멀티턴 요약.")
     out, info = asyncio.run(
         compress_conversation_history_with_llm_summary(
-            msgs, max_tokens=200, summarizer=summarizer
+            msgs, max_tokens=200, summarizer=NoopLLMSummarizer()
         )
     )
-    assert len(summarizer.calls) == 1
+    assert info["llm_summary_attempted"] is True
     assert info["llm_summary_used"] is True
     assert info["fallback"] == "llm_summary"
-    assert out == "압축된 멀티턴 요약."
+    assert isinstance(out, str)
+    assert out
 
 
 def test_noop_llm_summarizer_returns_input() -> None:
@@ -960,126 +918,12 @@ def test_load_priority_keywords_dedupe_case_insensitive(
 
 
 # ── Step 7 — LMStudioJSONSummarizer 빈 응답 retry 회귀 ───────────
-
-
-class _SequentialHTTPXClient:
-    """httpx.AsyncClient 의 최소 surface 를 흉내내는 mock — POST 응답 순서대로 반환."""
-
-    def __init__(self, responses: list[dict]) -> None:
-        self.responses = list(responses)
-        self.calls: list[dict] = []
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc) -> None:
-        return None
-
-    async def post(self, url: str, **kw):  # noqa: ARG002
-        self.calls.append({"url": url, "kw": kw})
-        if not self.responses:
-            raise AssertionError("Mock httpx: 응답이 더 없음")
-        body = self.responses.pop(0)
-
-        class _Resp:
-            def __init__(self, data: dict) -> None:
-                self._data = data
-
-            def raise_for_status(self) -> None:
-                return None
-
-            def json(self) -> dict:
-                return self._data
-
-        return _Resp(body)
-
-
-def _empty_resp() -> dict:
-    return {"choices": [{"message": {"content": ""}}]}
-
-
-def _ok_resp(text: str) -> dict:
-    return {"choices": [{"message": {"content": text}}]}
-
-
-def test_lmstudio_summarizer_retry_on_empty_then_success(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """1차 빈 응답 → 1회 retry → 두 번째 호출에서 성공해야 한다 (Step 7)."""
-    mock_client = _SequentialHTTPXClient([_empty_resp(), _ok_resp("유효한 요약")])
-
-    import agents.context_chunking as cc
-
-    monkeypatch.setattr(
-        cc,
-        "__name__",
-        cc.__name__,
-        raising=False,
-    )
-
-    summarizer = LMStudioJSONSummarizer(base_url="http://mock/v1", timeout=1.0)
-
-    class _MockHttpx:
-        @staticmethod
-        def AsyncClient(*a, **kw):  # noqa: N802, ARG004
-            return mock_client
-
-    monkeypatch.setitem(
-        __import__("sys").modules,
-        "httpx",
-        _MockHttpx,
-    )
-
-    out = asyncio.run(
-        summarizer.summarize(text="원문 텍스트", max_tokens=200, hint="test")
-    )
-    assert out == "유효한 요약"
-    assert summarizer.last_retry_count == 1
-    assert len(mock_client.calls) == 2
-    # 두 번째 호출의 system prompt 에 retry 지시문이 들어가 있어야 한다.
-    second_msgs = mock_client.calls[1]["kw"]["json"]["messages"]
-    system_text = next((m["content"] for m in second_msgs if m["role"] == "system"), "")
-    assert "이전 응답이 비었다" in system_text
-
-
-def test_lmstudio_summarizer_no_retry_when_first_response_ok(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """1차에서 비어있지 않으면 retry 없어야 한다 (정상 경로 회귀)."""
-    mock_client = _SequentialHTTPXClient([_ok_resp("바로 성공")])
-    summarizer = LMStudioJSONSummarizer(base_url="http://mock/v1", timeout=1.0)
-
-    class _MockHttpx:
-        @staticmethod
-        def AsyncClient(*a, **kw):  # noqa: N802, ARG004
-            return mock_client
-
-    monkeypatch.setitem(__import__("sys").modules, "httpx", _MockHttpx)
-
-    out = asyncio.run(summarizer.summarize(text="원문", max_tokens=200, hint=None))
-    assert out == "바로 성공"
-    assert summarizer.last_retry_count == 0
-    assert len(mock_client.calls) == 1
-
-
-def test_trim_text_with_llm_summary_records_retry_count(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """trim_text_with_llm_summary 가 summarizer.last_retry_count 를 info 에 합류."""
-
-    class _RetryAwareSummarizer(LLMSummarizer):
-        def __init__(self) -> None:
-            self.last_retry_count = 1
-
-        async def summarize(self, *, text: str, max_tokens: int, hint=None) -> str:
-            return "요약완료"
-
-    monkeypatch.setenv("LLM_SUMMARY_LAYER_ENABLED", "1")
-    monkeypatch.setenv("LLM_SUMMARY_TRIGGER", "chars")
-    text = ("foo " * 4000).strip()
-    out, info = asyncio.run(
-        trim_text_with_llm_summary(text, max_tokens=200, summarizer=_RetryAwareSummarizer())
-    )
-    assert info["llm_summary_used"] is True
-    assert info["llm_summary_retry_count"] == 1
-    assert out == "요약완료"
+#
+# Step 8 (2026-05-12) 회고 — CURSOR_HANDOVER §"테스트 철학" 정착:
+#   - 본 섹션은 httpx 클라이언트를 mock 으로 박은 단위 테스트로 시작했으나,
+#     실 LM Studio e4b 의 빈 응답 패턴 (단어 형태·길이·지연) 을 mock 이
+#     재현하지 못해 E2E xfail 로만 회귀가 노출되는 문제가 있었음.
+#   - 따라서 retry 동작의 실 호출 검증은 `tests/integration/test_real_llm_summarizer.py`
+#     로 이관: `max_tokens=1` 극단 budget 유도 + 잘못된 base_url graceful
+#     fallback 으로 retry 발동 가능성·예외 분기 모두 실 호출 기반 검증.
+#   - 본 단위 파일에는 httpx mock / RetryAware fake 가 더 이상 없음.
