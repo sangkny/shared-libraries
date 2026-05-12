@@ -322,11 +322,15 @@ class ReviewerAgent(BaseAgent):
                 "✅ 필수: 요청한 의료 정보가 포함되어 있음\n"
                 "✅ 필수: 개인식별정보(SSN, 주민번호 등) 없음\n"
                 "✅ 필수: ICD-10 코드가 있다면 올바른 형식(예: H35.0)\n"
+                "✅ 필수: confidence ≥ 0.5 (낮으면 자동으로 의사 검토 큐 승격)\n"
+                "✅ 필수: severity ↔ urgency 임상 매핑이 일관됨\n"
+                "✅ 필수: laterality(OD/OS/OU) 와 finding_side 가 일치\n"
                 "⚠ 권고(FAIL 아님): 더 상세한 내용 추가 가능\n\n"
                 "【FAIL 조건 — 아래 중 하나라도 해당하면 FAIL】\n"
                 "❌ 요청한 내용이 완전히 누락됨\n"
                 "❌ 개인식별정보가 포함됨\n"
-                "❌ 의학적으로 명백히 잘못된 정보 포함"
+                "❌ 의학적으로 명백히 잘못된 정보 포함\n"
+                "❌ severity=critical / urgency=emergency 인데 모순된 메타데이터"
             ),
             OntologyDomain.SOFTWARE: (
                 "【PASS 기준 — 아래 항목을 모두 만족하면 반드시 PASS】\n"
@@ -417,6 +421,18 @@ IMPROVEMENTS:
                     f"Ontology 검증 실패: "
                     f"{ontology_result.errors[0].message if ontology_result.errors else ''}"
                 )
+
+        # D R2 Day 2 — 의료 도메인: low-confidence warning 자동 hint 변환
+        if ontology_result is not None:
+            for w in ontology_result.warnings:
+                if w.code == "MED-SEM-004":
+                    hints.append(
+                        "⚠ 낮은 confidence — DiagnosisReview 큐로 자동 승격 권장 (의사 검토 필수)"
+                    )
+                elif w.code == "MED-SEM-007":
+                    hints.append(
+                        f"⚠ 비인증 모델 사용 — 임상 사용 전 모델 검증 필요 ({w.value})"
+                    )
 
         if not feedback:
             feedback = raw[:300]

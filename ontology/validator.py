@@ -113,8 +113,18 @@ class SemanticValidator(BaseSubValidator):
 
     async def _validate_medical_semantic(self, data: dict, rules: dict,
                                           result: ValidationResult):
-        """의료 데이터 의미 검증"""
-        # ICD-10 코드 형식 검증 (예: H35.0, E11.9)
+        """의료 데이터 의미 검증 (D R2 Day 2 — 안과·임상 강화 룰셋).
+
+        검증 룰 (코드 prefix MED-SEM-*):
+            001 — ICD-10 코드 형식
+            002 — 의료 용어 화이트리스트
+            003 — 안과 ICD-10 카테고리 (H/E11/E08~10) 일치 — eye_condition 이 있을 때
+            004 — confidence 0~1 범위
+            005 — severity ↔ urgency 일관성 (severe → urgent/emergency)
+            006 — laterality (OD/OS/OU) 검증 + finding_side 동기
+            007 — model_used 알려진 모델 화이트리스트 (warning)
+        """
+        # ── 001 — ICD-10 코드 형식 ─────────────────────────────
         icd10_fields = rules.get("icd10_fields", [])
         for field in icd10_fields:
             val = data.get(field, "")
@@ -123,10 +133,10 @@ class SemanticValidator(BaseSubValidator):
                     "MED-SEM-001",
                     f"ICD-10 코드 형식이 올바르지 않습니다: '{val}'",
                     field=field, value=val,
-                    suggestion="올바른 형식 예시: H35.0 (황반변성), E11.9 (2형 당뇨)"
+                    suggestion="올바른 형식 예시: H35.0 (황반변성), E11.9 (2형 당뇨)",
                 ))
 
-        # 허용된 의료 용어 검증
+        # ── 002 — 표준 의료 용어 화이트리스트 ────────────────
         terminology_fields = rules.get("terminology_fields", {})
         for field, allowed_terms in terminology_fields.items():
             val = data.get(field, "")
@@ -135,7 +145,91 @@ class SemanticValidator(BaseSubValidator):
                     "MED-SEM-002",
                     f"표준 의료 용어가 아닙니다: '{val}'",
                     field=field, value=val,
-                    suggestion=f"허용 용어: {', '.join(allowed_terms[:5])}"
+                    suggestion=f"허용 용어: {', '.join(allowed_terms[:5])}",
+                ))
+
+        # ── 003 — 안과 진단인데 ICD-10 prefix 가 무관한 경우 ─
+        allowed_categories = rules.get("allowed_icd10_categories", [])
+        if allowed_categories:
+            primary = (data.get("diagnosis_code") or data.get("icd10_code") or "")
+            condition = (data.get("eye_condition") or "").strip().lower()
+            if primary and condition and condition != "normal":
+                prefix_ok = any(
+                    str(primary).upper().startswith(cat.upper())
+                    for cat in allowed_categories
+                )
+                if not prefix_ok:
+                    result.add(self._warning(
+                        "MED-SEM-003",
+                        f"안과 진단 '{condition}' 에 대해 ICD-10 카테고리가 안과 영역(H/E11)에 속하지 않습니다: '{primary}'",
+                        field="diagnosis_code",
+                        value=primary,
+                        suggestion=f"허용 카테고리 prefix: {', '.join(allowed_categories)}",
+                    ))
+
+        # ── 004 — confidence 0~1 ─────────────────────────────
+        conf_field = rules.get("confidence_field", "confidence")
+        if conf_field in data and data[conf_field] is not None:
+            try:
+                c = float(data[conf_field])
+                if c < 0.0 or c > 1.0:
+                    result.add(self._error(
+                        "MED-SEM-004",
+                        f"confidence 값은 0.0~1.0 범위여야 합니다: {c}",
+                        field=conf_field, value=c,
+                        suggestion="LLM 출력의 confidence 정규화(0..1)를 확인하세요.",
+                    ))
+                elif c < 0.5:
+                    result.add(self._warning(
+                        "MED-SEM-004",
+                        f"낮은 confidence ({c:.2f}) — 의사 검토 단계로 자동 승격 권장",
+                        field=conf_field, value=c,
+                        suggestion="ReviewerAgent: confidence < 0.5 → DiagnosisReview pending 자동 큐",
+                    ))
+            except (TypeError, ValueError):
+                pass
+
+        # ── 005 — severity ↔ urgency 일관성 ─────────────────
+        sev_urg = rules.get("severity_urgency_map", {})
+        sev = (data.get("severity") or "").strip().lower()
+        urg = (data.get("urgency") or "").strip().lower()
+        if sev and urg and sev_urg:
+            allowed_urg = sev_urg.get(sev, [])
+            if allowed_urg and urg not in allowed_urg:
+                result.add(self._error(
+                    "MED-SEM-005",
+                    f"severity '{sev}' 와 urgency '{urg}' 의 임상 매핑이 불일치합니다.",
+                    field="urgency", value=urg,
+                    suggestion=f"severity={sev} 에 권장되는 urgency: {', '.join(allowed_urg)}",
+                ))
+
+        # ── 006 — laterality + finding_side 동기 ────────────
+        lat = (data.get("laterality") or "").strip().upper()
+        fs = (data.get("finding_side") or "").strip().upper()
+        if lat and fs:
+            lat_to_sides = {"OD": {"OD", "RIGHT", "R"},
+                            "OS": {"OS", "LEFT", "L"},
+                            "OU": {"OD", "OS", "OU", "BOTH", "RIGHT", "LEFT", "R", "L"}}
+            allowed = lat_to_sides.get(lat, set())
+            if allowed and fs not in allowed:
+                result.add(self._error(
+                    "MED-SEM-006",
+                    f"laterality={lat} 인데 finding_side={fs} 는 일관성이 없습니다.",
+                    field="finding_side", value=fs,
+                    suggestion="laterality 와 finding_side 를 일치시키거나 laterality=OU 로 설정하세요.",
+                ))
+
+        # ── 007 — model_used 화이트리스트 (warning) ─────────
+        model_whitelist = rules.get("model_whitelist", [])
+        mu = data.get("model_used")
+        if mu and model_whitelist:
+            mlow = str(mu).lower()
+            if not any(w.lower() in mlow for w in model_whitelist):
+                result.add(self._warning(
+                    "MED-SEM-007",
+                    f"model_used '{mu}' 가 인증된 의료 모델 화이트리스트에 없습니다.",
+                    field="model_used", value=mu,
+                    suggestion=f"화이트리스트: {', '.join(model_whitelist)} — 임상 사용 전 모델 검증을 권장합니다.",
                 ))
 
     async def _validate_software_semantic(self, data: dict, rules: dict,
@@ -928,65 +1022,130 @@ class OntologyValidator:
         if domain == OntologyDomain.MEDICAL:
             return {
                 "semantic": {
-                    "icd10_fields": ["diagnosis_code", "secondary_diagnosis"],
+                    "icd10_fields": ["diagnosis_code", "secondary_diagnosis", "icd10_code"],
                     "terminology_fields": {
                         "eye_condition": [
                             "diabetic_retinopathy", "macular_degeneration",
                             "glaucoma", "cataract", "normal",
+                            "retinal_detachment", "hypertensive_retinopathy",
                         ],
-                        "laterality": ["OD", "OS", "OU"],  # 우안/좌안/양안
+                        "laterality": ["OD", "OS", "OU"],
+                        "severity": ["mild", "moderate", "severe", "critical"],
                     },
+                    # MED-SEM-003 — 안과 진단인데 비안과 ICD-10 코드 사용 시 warning
+                    "allowed_icd10_categories": [
+                        "H35", "H36", "H40", "H53",      # 망막·녹내장·시각장애 등
+                        "H25", "H26", "H27",              # 백내장 계열
+                        "E11", "E10",                     # 당뇨 (망막증 연계)
+                        "I10",                            # 본태성고혈압 (고혈압망막증)
+                    ],
+                    # MED-SEM-004 — confidence field name
+                    "confidence_field": "confidence",
+                    # MED-SEM-005 — severity → urgency 임상 매핑
+                    "severity_urgency_map": {
+                        "mild":     ["routine"],
+                        "moderate": ["routine", "urgent"],
+                        "severe":   ["urgent", "emergency"],
+                        "critical": ["emergency"],
+                    },
+                    # MED-SEM-007 — 인증된 의료 모델 화이트리스트 (warning)
+                    "model_whitelist": [
+                        "google/gemma-4-26b-a4b",         # primary HEAVY
+                        "google/gemma-4-e4b",             # LOCAL_FAST
+                        "openai/gpt-oss-20b",             # consensus member
+                        "qwen/qwen3-4b-2507",             # consensus member
+                    ],
                 },
                 "structural": {
                     "required_fields": [
                         "patient_id", "diagnosis_code",
                         "examination_date", "doctor_id",
+                        "eye_condition", "confidence",
+                        "severity", "model_used", "ontology_passed",
                     ],
                     "field_types": {
-                        "patient_id": "str",
-                        "age":        "int",
-                        "vision_od":  "float",
-                        "vision_os":  "float",
+                        "patient_id":     "str",
+                        "age":            "int",
+                        "vision_od":      "number",
+                        "vision_os":      "number",
+                        "confidence":     "number",
+                        "iop_od":         "number",
+                        "iop_os":         "number",
+                        "ontology_passed": "bool",
                     },
                     "field_formats": {
-                        "patient_id":       r"^P\d{6}$",   # P123456
+                        "patient_id":       r"^P\d{6}$",
                         "examination_date": r"^\d{4}-\d{2}-\d{2}$",
+                        "birth_date":       r"^\d{4}-\d{2}-\d{2}$",
+                        "doctor_id":        r"^D\d{4,8}$",
                     },
                     "forbidden_fields": [
                         "ssn", "social_security", "password",
+                        "credit_card", "card_number", "rrn",
                     ],
                 },
                 "constraints": {
                     "ranges": {
-                        "age":        {"min": 0,   "max": 150},
-                        "vision_od":  {"min": 0.0, "max": 2.0},
-                        "vision_os":  {"min": 0.0, "max": 2.0},
-                        "iop_od":     {"min": 0,   "max": 80},   # 안압 (mmHg)
-                        "iop_os":     {"min": 0,   "max": 80},
+                        "age":           {"min": 0,   "max": 150},
+                        "vision_od":     {"min": 0.0, "max": 2.0},
+                        "vision_os":     {"min": 0.0, "max": 2.0},
+                        "iop_od":        {"min": 0,   "max": 80},
+                        "iop_os":        {"min": 0,   "max": 80},
+                        "confidence":    {"min": 0.0, "max": 1.0},
+                        "hba1c":         {"min": 3.0, "max": 20.0},
+                        "blood_glucose": {"min": 30,  "max": 600},
+                        "bp_systolic":   {"min": 60,  "max": 260},
+                        "bp_diastolic":  {"min": 30,  "max": 160},
                     },
-                    "date_fields": ["examination_date", "birth_date"],
+                    "date_fields": ["examination_date", "birth_date", "surgery_date"],
                     "enums": {
-                        "laterality": ["OD", "OS", "OU"],
-                        "urgency":    ["routine", "urgent", "emergency"],
+                        "laterality":  ["OD", "OS", "OU"],
+                        "urgency":     ["routine", "urgent", "emergency"],
+                        "severity":    ["mild", "moderate", "severe", "critical"],
+                        "report_status": ["pending", "draft", "approved", "rejected"],
                     },
                 },
                 "dependencies": {
                     "requires": [
                         {
-                            "if_field":    "diagnosis_code",
+                            "if_field":     "diagnosis_code",
                             "then_require": "examination_date",
-                            "message":     "진단 코드가 있으면 검사 날짜가 필수입니다.",
+                            "message":      "진단 코드가 있으면 검사 날짜가 필수입니다.",
                         },
                         {
-                            "if_field":    "surgery_date",
+                            "if_field":     "surgery_date",
                             "then_require": "anesthesia_type",
-                            "message":     "수술 날짜가 있으면 마취 유형이 필수입니다.",
+                            "message":      "수술 날짜가 있으면 마취 유형이 필수입니다.",
                         },
                         {
-                            "if_field":    "eye_condition",
-                            "has_value":   "diabetic_retinopathy",
+                            "if_field":     "eye_condition",
+                            "has_value":    "diabetic_retinopathy",
                             "then_require": "blood_glucose",
-                            "message":     "당뇨망막병증 진단 시 혈당 수치가 필수입니다.",
+                            "message":      "당뇨망막병증 진단 시 혈당 수치가 필수입니다.",
+                        },
+                        {
+                            "if_field":     "eye_condition",
+                            "has_value":    "glaucoma",
+                            "then_require": "iop_od",
+                            "message":      "녹내장 진단 시 안압 측정 (최소 OD) 이 필수입니다.",
+                        },
+                        {
+                            "if_field":     "eye_condition",
+                            "has_value":    "macular_degeneration",
+                            "then_require": "vision_od",
+                            "message":      "황반변성 진단 시 시력 (OD) 기록이 필수입니다.",
+                        },
+                        {
+                            "if_field":     "urgency",
+                            "has_value":    "emergency",
+                            "then_require": "severity",
+                            "message":      "emergency 케이스는 severity 가 명시되어야 합니다.",
+                        },
+                        {
+                            "if_field":     "ontology_passed",
+                            "has_value":    True,
+                            "then_require": "model_used",
+                            "message":      "ontology_passed=True 는 model_used 가 기록되어야 합니다.",
                         },
                     ],
                     "excludes": [],
