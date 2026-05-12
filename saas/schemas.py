@@ -114,3 +114,39 @@ class AdminStatsResponse(BaseModel):
     total_calls_this_month: int
     total_tokens_this_month: int
     plan_distribution: list[PlanDistributionEntry]
+
+
+# ── Stripe (B-7) ─────────────────────────────────────────────
+
+
+class StripeCheckoutRequest(BaseModel):
+    plan_code: str = Field(..., min_length=1, max_length=32)
+    success_url: str | None = Field(default=None, max_length=500)
+    cancel_url: str | None = Field(default=None, max_length=500)
+
+
+class StripeCheckoutResponse(BaseModel):
+    session_id: str
+    url: str
+
+
+class StripePlanMappingRequest(BaseModel):
+    plan_code: str = Field(..., min_length=1, max_length=32)
+    stripe_price_id: str = Field(..., min_length=4, max_length=128)
+
+
+class StripePlanMappingOut(BaseModel):
+    plan_code: str
+    stripe_price_id: str
+
+
+class StripeWebhookResponse(BaseModel):
+    received: bool
+    type: str | None = None
+    action: str | None = None
+
+
+class StripeStatusResponse(BaseModel):
+    enabled: bool
+    public_key: str | None = None
+    supported_events: list[str]

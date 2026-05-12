@@ -30,6 +30,12 @@ from .schemas import (
     PlanDistributionEntry,
     PlanListResponse,
     PlanOut,
+    StripeCheckoutRequest,
+    StripeCheckoutResponse,
+    StripePlanMappingOut,
+    StripePlanMappingRequest,
+    StripeStatusResponse,
+    StripeWebhookResponse,
     SubscribeRequest,
     SubscribeResponse,
     SubscriptionOut,
@@ -40,10 +46,24 @@ from .schemas import (
     UsageTimelineResponse,
 )
 from .service import BillingService
+from .stripe_models import make_stripe_models
+from .stripe_service import (
+    SUPPORTED_EVENTS as STRIPE_SUPPORTED_EVENTS,
+    StripeConfig,
+    StripeDisabled,
+    StripeService,
+    StripeSignatureError,
+)
 
 __all__ = [
     "make_billing_models",
+    "make_stripe_models",
     "BillingService",
+    "StripeConfig",
+    "StripeService",
+    "StripeDisabled",
+    "StripeSignatureError",
+    "STRIPE_SUPPORTED_EVENTS",
     "QuotaContext",
     "make_enforce_quota_dep",
     "record_call",
@@ -66,4 +86,10 @@ __all__ = [
     "UsageTimelineResponse",
     "PlanDistributionEntry",
     "AdminStatsResponse",
+    "StripeCheckoutRequest",
+    "StripeCheckoutResponse",
+    "StripePlanMappingRequest",
+    "StripePlanMappingOut",
+    "StripeStatusResponse",
+    "StripeWebhookResponse",
 ]
