@@ -19,6 +19,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import PushConfig, PushDisabledError
+from .inbox_service import InboxService
 
 
 log = logging.getLogger("notifications.service")
@@ -33,10 +34,12 @@ class NotificationService:
         config: PushConfig,
         device_cls,
         service_name: str | None = None,
+        inbox: InboxService | None = None,
     ) -> None:
         self.config = config
         self.Device = device_cls
         self.service_name = service_name
+        self.inbox = inbox
 
     # ── 디바이스 관리 ────────────────────────────────────────────────
 
@@ -166,6 +169,55 @@ class NotificationService:
             log.exception("push_send_failed user_id=%s err=%s", user_id, exc)
 
         return {"sent": sent, "failed": failed, "skipped": 0, "tokens": tokens}
+
+    # ── inbox 통합 helper ────────────────────────────────────────────
+
+    async def notify(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: str,
+        title: str,
+        body: str,
+        kind: str = "system",
+        ref_id: str | None = None,
+        data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """In-app inbox 1행 저장 + (push 가능하면) Expo Push 발송.
+
+        Push 가 비활성(``PUSH_ENABLED=0``)이거나 단말기 0대여도 inbox 는 항상 저장된다.
+        반환값: ``{"inbox_id": str | None, "push": {sent, failed, skipped, tokens}}``.
+        """
+        inbox_id: str | None = None
+        if self.inbox is not None:
+            row = await self.inbox.create(
+                db,
+                user_id=user_id,
+                kind=kind,
+                title=title,
+                body=body,
+                ref_id=ref_id,
+                data=data,
+            )
+            inbox_id = getattr(row, "id", None)
+
+        push_result: dict[str, Any] = {
+            "sent": 0, "failed": 0, "skipped": 0, "tokens": [], "disabled": False,
+        }
+        if self.config.enabled:
+            try:
+                push_result = await self.send_to_user(
+                    db, user_id=user_id, title=title, body=body, data=data,
+                )
+            except PushDisabledError:
+                push_result["disabled"] = True
+            except Exception as exc:
+                log.exception("notify_push_failed user_id=%s err=%s", user_id, exc)
+                push_result["failed"] = -1
+        else:
+            push_result["disabled"] = True
+
+        return {"inbox_id": inbox_id, "push": push_result}
 
 
 __all__ = ["NotificationService"]

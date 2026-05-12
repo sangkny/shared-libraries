@@ -14,6 +14,8 @@
 """
 
 from .config import PushConfig, PushDisabledError
+from .inbox_models import make_inbox_models
+from .inbox_service import InboxService
 from .models import make_notification_models
 from .service import NotificationService
 
@@ -22,4 +24,6 @@ __all__ = [
     "PushDisabledError",
     "make_notification_models",
     "NotificationService",
+    "make_inbox_models",
+    "InboxService",
 ]
