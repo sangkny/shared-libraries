@@ -34,6 +34,32 @@ from .helpers import (
 log = logging.getLogger("saas.service")
 
 
+def _emit_plan_transition(
+    service_name: str | None,
+    from_plan: str | None,
+    to_plan: str,
+    *,
+    channel: str = "admin",
+) -> None:
+    """Prometheus ``saas_plan_transitions_total`` 카운터 (best-effort).
+
+    ``service_name`` 또는 ``observability`` 모듈 미설치 시 silently no-op.
+    """
+    if not service_name:
+        return
+    try:
+        from observability import inc_saas_plan_transition
+
+        inc_saas_plan_transition(
+            service=service_name,
+            from_plan=from_plan or "none",
+            to_plan=to_plan,
+            channel=channel,
+        )
+    except Exception:
+        pass
+
+
 class BillingService:
     """덕 타이핑 ORM (Plan/Subscription/UsageRecord/MonthlyUsage) DI 기반 SaaS 빌링.
 
@@ -60,12 +86,16 @@ class BillingService:
         usage_record_cls,
         monthly_usage_cls,
         default_free_code: str = DEFAULT_FREE_PLAN_CODE,
+        service_name: str | None = None,
     ) -> None:
         self.Plan = plan_cls
         self.Subscription = subscription_cls
         self.UsageRecord = usage_record_cls
         self.MonthlyUsage = monthly_usage_cls
         self.default_free_code = default_free_code
+        # Prometheus 메트릭 라벨 — "adk" / "coops" / "medi" 등.
+        # None 이면 메트릭 발행 skip (graceful — 회귀 0).
+        self.service_name = service_name
 
     # ── 카탈로그 ────────────────────────────────────────────────────
 
@@ -151,6 +181,9 @@ class BillingService:
         )
         db.add(sub)
         await db.flush()
+        _emit_plan_transition(
+            self.service_name, previous_code, new_plan_code, channel="admin"
+        )
         return sub, new_plan, previous_code
 
     # ── Monthly Usage ──────────────────────────────────────────────

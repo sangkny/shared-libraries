@@ -36,6 +36,22 @@ from .service import BillingService
 log = logging.getLogger("saas.stripe")
 
 
+def _emit_stripe_webhook(
+    service_name: str | None, event_type: str, action: str
+) -> None:
+    """Prometheus ``saas_stripe_webhook_events_total`` (best-effort)."""
+    if not service_name:
+        return
+    try:
+        from observability import inc_saas_stripe_webhook
+
+        inc_saas_stripe_webhook(
+            service=service_name, event_type=event_type, action=action
+        )
+    except Exception:
+        pass
+
+
 class StripeDisabled(Exception):
     """``STRIPE_ENABLED=0`` 또는 키 미설정 — 라우트는 503 반환."""
 
@@ -237,6 +253,9 @@ class StripeService:
         else:  # pragma: no cover
             action = "ignored"
 
+        _emit_stripe_webhook(
+            getattr(self.billing, "service_name", None), etype, action
+        )
         return {"received": True, "type": etype, "action": action}
 
     async def _handle_checkout_completed(

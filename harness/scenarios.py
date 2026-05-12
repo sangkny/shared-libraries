@@ -684,6 +684,172 @@ BUSINESS_SCENARIOS = [
         timeout_sec=120,
         max_iterations=2,
     ),
+    # ── C Week 3 Day 2 — BUSINESS 1 → 15 확장 (2026-05-12) ──
+    # CoOps 의 콘텐츠 에이전트 3종 (Video/SNS/Investor) + 보강 시나리오.
+    # 모두 pipeline 또는 debate — CONSENSUS 는 ent plan 전용으로 별도 운영.
+    HarnessScenario(
+        name="video_script_60s_product_launch",
+        domain=OntologyDomain.BUSINESS,
+        strategy="pipeline",
+        task=(
+            "신규 SaaS 제품 (협업 결재 자동화 도구) 의 60초 영상 소개 스크립트를 "
+            "한국어로 작성하세요. 인트로(10초)/핵심기능(40초)/CTA(10초) 구조로 분리해, "
+            "각 섹션에 음성 더빙 가이드와 화면 전환 노트를 포함하세요."
+        ),
+        validators=[has_content, has_business_content, has_sufficient_length],
+        expect_pass=True,
+        tags=["business", "content", "video", "60s"],
+        timeout_sec=180,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="video_script_15s_shorts",
+        domain=OntologyDomain.BUSINESS,
+        strategy="pipeline",
+        task=(
+            "기업 SaaS 신규 기능 (Stripe 결제 자동화 도입) 을 알리는 15초 쇼츠 "
+            "영상 스크립트를 한국어로 작성. 첫 3초 후크, 강력한 CTA, 자막용 텍스트 "
+            "포함."
+        ),
+        validators=[has_content, has_business_content],
+        expect_pass=True,
+        tags=["business", "content", "video", "shorts"],
+        timeout_sec=150,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="video_script_180s_demo",
+        domain=OntologyDomain.BUSINESS,
+        strategy="debate",
+        task=(
+            "AI 협업 플랫폼의 3분(180초) 데모 영상 스크립트를 한국어로 기획하세요. "
+            "문제 정의 (30s) → 솔루션 시연 (90s) → ROI 비교 (30s) → 무료 베타 신청 "
+            "CTA (30s) 구조. 각 섹션에 핵심 메시지 + 시각 자료 가이드 포함."
+        ),
+        validators=[has_content, has_business_content, has_sufficient_length],
+        expect_pass=True,
+        tags=["business", "content", "video", "demo"],
+        timeout_sec=300,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="sns_post_linkedin_announcement",
+        domain=OntologyDomain.BUSINESS,
+        strategy="pipeline",
+        task=(
+            "LinkedIn 게시물 — B2B SaaS 회사의 시리즈A 투자 유치 (USD 5M) 발표문. "
+            "성취 + 비전 + 채용 공고 링크 + 3~5개 hashtag, 1300자 이내."
+        ),
+        validators=[has_content, has_business_content],
+        expect_pass=True,
+        tags=["business", "content", "sns", "linkedin"],
+        timeout_sec=150,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="sns_post_twitter_thread",
+        domain=OntologyDomain.BUSINESS,
+        strategy="pipeline",
+        task=(
+            "Twitter (X) 5-tweet thread — 회사가 새 API 출시를 알린다. 각 트윗 "
+            "280자 이내, 1번 hook / 2~4번 features / 5번 CTA 구조. 영어로 작성."
+        ),
+        validators=[has_content, has_business_content],
+        expect_pass=True,
+        tags=["business", "content", "sns", "twitter"],
+        timeout_sec=150,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="sns_campaign_multi_platform",
+        domain=OntologyDomain.BUSINESS,
+        strategy="debate",
+        task=(
+            "동일한 핵심 메시지 (AI 코드 리뷰 도구 무료 베타 출시) 를 Twitter, "
+            "LinkedIn, Instagram 3 플랫폼별로 톤·길이·해시태그 전략을 차별화해 "
+            "각각 게시물을 작성. 한국어와 영어를 적절히 혼용."
+        ),
+        validators=[has_content, has_business_content, has_sufficient_length],
+        expect_pass=True,
+        tags=["business", "content", "sns", "multi-platform"],
+        timeout_sec=300,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="investor_report_q1_2026",
+        domain=OntologyDomain.BUSINESS,
+        strategy="debate",
+        task=(
+            "B2B SaaS 스타트업 2026 Q1 분기 보고서 — ARR USD 240k (전분기 +18%), "
+            "MRR USD 20k, 액티브 고객 32명, NRR 112%. 임원 요약 + 매출 지표 + "
+            "리스크 + 다음 분기 OKR 4종 포함. 영어로 작성."
+        ),
+        validators=[has_content, has_business_content, has_sufficient_length],
+        expect_pass=True,
+        tags=["business", "content", "investor", "quarterly"],
+        timeout_sec=300,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="investor_pitch_seriesA",
+        domain=OntologyDomain.BUSINESS,
+        strategy="debate",
+        task=(
+            "시리즈A 라운드 USD 5M 유치를 위한 1-페이지 피치 요약 — Problem / "
+            "Solution / Traction (ARR USD 240k, 32 customers) / Market (TAM USD 3B) "
+            "/ Team / Ask USD 5M @ USD 25M valuation. 한국어 + 핵심 영어 용어."
+        ),
+        validators=[has_content, has_business_content, has_sufficient_length],
+        expect_pass=True,
+        tags=["business", "content", "investor", "seriesA"],
+        timeout_sec=300,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="investor_arr_growth_analysis",
+        domain=OntologyDomain.BUSINESS,
+        strategy="pipeline",
+        task=(
+            "최근 6 개월 ARR 추이 (Nov USD 80k → Dec 100k → Jan 130k → Feb 160k → "
+            "Mar 200k → Apr 240k) 를 분석한 투자자용 메모. CAGR, 가속도, 주요 "
+            "성장 원인 3가지, 잠재 리스크 2가지 포함. 영어로 작성."
+        ),
+        validators=[has_content, has_business_content],
+        expect_pass=True,
+        tags=["business", "content", "investor", "growth"],
+        timeout_sec=180,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="invoice_tax_compliance",
+        domain=OntologyDomain.BUSINESS,
+        strategy="pipeline",
+        task=(
+            "한국 부가가치세 (10%) 가 적용되는 SaaS 월정액 계약 (월 99 USD) 의 "
+            "인보이스 본문을 작성하세요. 공급자/공급받는자 정보, 공급가/세액/합계, "
+            "INV-20260512 형식 인보이스 번호, 지급 조건 포함."
+        ),
+        validators=[no_pii_data, has_business_content],
+        expect_pass=True,
+        tags=["business", "billing", "invoice", "tax"],
+        timeout_sec=150,
+        max_iterations=2,
+    ),
+    HarnessScenario(
+        name="contract_multilingual_review",
+        domain=OntologyDomain.BUSINESS,
+        strategy="debate",
+        task=(
+            "한국어 SaaS 라이선스 계약서를 영어로 번역하면서 핵심 조항 5가지 "
+            "(라이선스 범위, 결제 조건, SLA, 책임 제한, 해지) 의 의미가 달라지지 "
+            "않는지 검토하세요. CON-20260512 형식 계약번호 사용."
+        ),
+        validators=[has_content, has_business_content, has_sufficient_length],
+        expect_pass=True,
+        tags=["business", "contract", "multilingual", "review"],
+        timeout_sec=300,
+        max_iterations=2,
+    ),
 ]
 
 # ── Phase 2: KNOWLEDGE / COST (OntologyDomain 확장) ────────

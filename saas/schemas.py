@@ -75,6 +75,42 @@ class SubscribeResponse(BaseModel):
     started_at: datetime
 
 
+class OnboardBatchRequest(BaseModel):
+    """admin — 베타 고객 일괄 plan 부여 (C Week 3 Day 5).
+
+    동일 ``plan_code`` 를 N 명에게 한 번에 부여. 부분 실패는 응답의 ``failed``
+    리스트로 보고하며 성공한 항목은 commit 된다.
+    """
+
+    user_ids: list[str] = Field(
+        ..., min_length=1, max_length=100,
+        description="대상 user_id 목록 (1~100명)",
+    )
+    plan_code: str = Field(..., min_length=1, max_length=32)
+    welcome_note: str | None = Field(
+        None, max_length=2000,
+        description="welcome email/Slack 본문 (선택, 응답에 포함되어 운영자가 발송)",
+    )
+
+
+class OnboardBatchEntry(BaseModel):
+    user_id: str
+    plan_code: str
+    previous_plan_code: str | None = None
+    status: str = Field(..., description="ok | failed")
+    error: str | None = None
+
+
+class OnboardBatchResponse(BaseModel):
+    plan_code: str
+    requested: int
+    succeeded: int
+    failed: int
+    entries: list[OnboardBatchEntry]
+    welcome_note: str | None = None
+    issued_at: datetime
+
+
 class UsageTimelinePoint(BaseModel):
     date: str
     calls: int

@@ -38,6 +38,41 @@ from .service import BillingService
 log = logging.getLogger("saas.quota")
 
 
+def _emit_saas_call(
+    service_name: str | None, plan_code: str, action: str, *, success: bool
+) -> None:
+    """Prometheus ``saas_calls_total`` 카운터 (best-effort, no-op if missing)."""
+    if not service_name:
+        return
+    try:
+        from observability import inc_saas_call
+
+        inc_saas_call(
+            service=service_name,
+            plan_code=plan_code,
+            action=action,
+            success=success,
+        )
+    except Exception:
+        pass
+
+
+def _emit_quota_blocked(
+    service_name: str | None, plan_code: str, action: str
+) -> None:
+    """Prometheus ``saas_quota_blocked_total`` 카운터 (best-effort)."""
+    if not service_name:
+        return
+    try:
+        from observability import inc_saas_quota_blocked
+
+        inc_saas_quota_blocked(
+            service=service_name, plan_code=plan_code, action=action
+        )
+    except Exception:
+        pass
+
+
 @dataclass
 class QuotaContext:
     """라우트 핸들러가 받는 quota 컨텍스트."""
@@ -89,6 +124,9 @@ def make_enforce_quota_dep(
                     plan.code,
                     used,
                     int(quota),
+                )
+                _emit_quota_blocked(
+                    getattr(billing, "service_name", None), plan.code, action
                 )
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -163,6 +201,12 @@ async def record_call(
                 tokens_estimated or 0
             )
         await db.flush()
+        _emit_saas_call(
+            getattr(billing, "service_name", None),
+            quota.plan_code,
+            quota.action,
+            success=success,
+        )
     except Exception:
         log.exception(
             "record_call 실패 user_id=%s action=%s — 사용량 기록 누락",

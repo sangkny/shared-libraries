@@ -16,6 +16,14 @@ from .prom_metrics import (
     observe_chunking_snapshot,
     render_prometheus_text,
 )
+from .saas_metrics import (
+    inc_saas_call,
+    inc_saas_plan_transition,
+    inc_saas_quota_blocked,
+    inc_saas_stripe_webhook,
+    set_saas_active_subscribers,
+    set_saas_monthly_revenue,
+)
 from .structured_logger import configure_json_logging
 
 __all__ = [
@@ -28,4 +36,11 @@ __all__ = [
     "observe_chunking_duration",
     "observe_chunking_snapshot",
     "render_prometheus_text",
+    # SaaS billing (C Week 3 Day 3)
+    "inc_saas_call",
+    "inc_saas_quota_blocked",
+    "inc_saas_plan_transition",
+    "inc_saas_stripe_webhook",
+    "set_saas_active_subscribers",
+    "set_saas_monthly_revenue",
 ]
