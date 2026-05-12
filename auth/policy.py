@@ -10,7 +10,10 @@ from .dependencies import current_user_strict
 
 POLICIES: Final[dict[str, dict[str, list[str]]]] = {
     "medi-iot": {
-        "doctor": ["read", "create_exam", "ai_analyze", "upload_image"],
+        "doctor": [
+            "read", "create_exam", "ai_analyze", "upload_image",
+            "promote_diagnosis", "review_diagnosis",
+        ],
         "staff": ["read", "create_patient"],
         "admin": ["*"],
     },
