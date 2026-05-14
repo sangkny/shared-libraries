@@ -6,8 +6,9 @@ ADK / CoOps / 향후 MEDI 모두 동일 응답 구조 — 클라이언트 (admin
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PlanOut(BaseModel):
@@ -159,6 +160,21 @@ class StripeCheckoutRequest(BaseModel):
     plan_code: str = Field(..., min_length=1, max_length=32)
     success_url: str | None = Field(default=None, max_length=500)
     cancel_url: str | None = Field(default=None, max_length=500)
+    allow_promotion_codes: bool = False
+    promotion_code: str | None = Field(
+        default=None, max_length=128,
+        description="Stripe Promotion Code id (promo_...), coupon_id 와 동시 사용 금지",
+    )
+    coupon_id: str | None = Field(
+        default=None, max_length=128,
+        description="Stripe Coupon id (coupon_...)",
+    )
+
+    @model_validator(mode="after")
+    def _discount_exclusive(self) -> "StripeCheckoutRequest":
+        if self.promotion_code and self.coupon_id:
+            raise ValueError("promotion_code 과 coupon_id 는 동시에 사용할 수 없습니다")
+        return self
 
 
 class StripeCheckoutResponse(BaseModel):
@@ -195,8 +211,32 @@ class StripePortalRequest(BaseModel):
     """Customer Portal session 생성 요청 — 활성 sub 1개 가정."""
 
     return_url: str | None = Field(default=None, max_length=500)
+    flow: str | None = Field(
+        default=None,
+        max_length=32,
+        description="invoice_history — 인보이스 목록 화면 직행 (모바일 return_url 권장)",
+    )
 
 
 class StripePortalResponse(BaseModel):
     session_id: str
     url: str
+
+
+# ── Stripe metered usage (B-7 Round 3) ───────────────────────────
+
+
+class StripeMeteredUsageRequest(BaseModel):
+    quantity: float = Field(..., ge=0, le=1e15)
+    action: Literal["increment", "set"] = "increment"
+    timestamp: int | None = Field(
+        default=None,
+        description="Unix 시각 (선택). 미지정 시 Stripe 기본.",
+    )
+
+
+class StripeMeteredUsageResponse(BaseModel):
+    status: str
+    usage_record_id: str | None = None
+    subscription_item_id: str | None = None
+    stripe_subscription_id: str | None = None

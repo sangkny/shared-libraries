@@ -20,7 +20,9 @@ from .saas_metrics import (
     inc_saas_call,
     inc_saas_plan_transition,
     inc_saas_quota_blocked,
+    inc_saas_stripe_dispute,
     inc_saas_stripe_revenue,
+    inc_saas_stripe_revenue_minor,
     inc_saas_stripe_webhook,
     set_saas_active_subscribers,
     set_saas_monthly_revenue,
@@ -43,6 +45,8 @@ __all__ = [
     "inc_saas_plan_transition",
     "inc_saas_stripe_webhook",
     "inc_saas_stripe_revenue",
+    "inc_saas_stripe_revenue_minor",
+    "inc_saas_stripe_dispute",
     "set_saas_active_subscribers",
     "set_saas_monthly_revenue",
 ]

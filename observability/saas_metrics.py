@@ -91,6 +91,17 @@ def _ensure_metrics() -> None:
         "Cumulative Stripe revenue (USD). direction=paid → gross, refunded → returned.",
         ("service", "direction"),
     )
+    # B-7 Round 3 — 원화·유로·엔 등 minor unit (Stripe amount_* 는 통화별 minor)
+    _counter(
+        "saas_stripe_revenue_minor_total",
+        "Stripe revenue in currency minor units (e.g. cents, won). Use with currency label.",
+        ("service", "currency", "direction"),
+    )
+    _counter(
+        "saas_stripe_disputes_total",
+        "Stripe charge dispute lifecycle events (created/closed/funds_*).",
+        ("service", "event_type", "status"),
+    )
 
     _gauge(
         "saas_active_subscribers",
@@ -198,6 +209,49 @@ def inc_saas_stripe_webhook(
         pass
 
 
+def inc_saas_stripe_revenue_minor(
+    *,
+    service: str,
+    amount_minor: float,
+    currency: str,
+    direction: str = "paid",
+) -> None:
+    """B-7 R3 — invoice/charge 금액을 통화 minor 단위로 누적 (FX 없이 원본)."""
+    if not _HAS_PROM:
+        return
+    _ensure_metrics()
+    c = _REGISTERED.get("saas_stripe_revenue_minor_total")
+    if c is None or amount_minor <= 0:
+        return
+    cur = (currency or "usd").lower()[:8]
+    try:
+        c.labels(service=service, currency=cur, direction=direction).inc(
+            float(amount_minor)
+        )
+    except Exception:
+        pass
+
+
+def inc_saas_stripe_dispute(
+    *, service: str, event_type: str, dispute_status: str
+) -> None:
+    """B-7 R3 — dispute.* 웹훅 처리 시 +1."""
+    if not _HAS_PROM:
+        return
+    _ensure_metrics()
+    c = _REGISTERED.get("saas_stripe_disputes_total")
+    if c is None:
+        return
+    try:
+        c.labels(
+            service=service,
+            event_type=event_type,
+            status=(dispute_status or "unknown")[:32],
+        ).inc()
+    except Exception:
+        pass
+
+
 def inc_saas_stripe_revenue(
     *, service: str, amount_usd: float, direction: str = "paid"
 ) -> None:
@@ -254,6 +308,8 @@ __all__ = [
     "inc_saas_plan_transition",
     "inc_saas_stripe_webhook",
     "inc_saas_stripe_revenue",
+    "inc_saas_stripe_revenue_minor",
+    "inc_saas_stripe_dispute",
     "set_saas_active_subscribers",
     "set_saas_monthly_revenue",
 ]
