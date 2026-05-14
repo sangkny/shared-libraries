@@ -27,7 +27,10 @@ COPY --from=builder /root/.local /root/.local
 
 WORKDIR /app
 COPY . .
-RUN pip install --no-cache-dir -e .
+# builder 단계와 별도로 한 번 더 설치 — 호스트 볼륨으로 /app 이 덮여도,
+# 이미지 재빌드 시 최신 requirements.txt 가 site-packages 에 반영되도록 한다.
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir -e .
 
 ENV \
     PYTHONUNBUFFERED=1 \
