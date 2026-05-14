@@ -19,6 +19,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import PushConfig, PushDisabledError
+from .gateway import PushGateway, PushMessage, PushSendResult, make_gateway
 from .inbox_service import InboxService
 
 
@@ -35,11 +36,13 @@ class NotificationService:
         device_cls,
         service_name: str | None = None,
         inbox: InboxService | None = None,
+        gateway: PushGateway | None = None,
     ) -> None:
         self.config = config
         self.Device = device_cls
         self.service_name = service_name
         self.inbox = inbox
+        self.gateway = gateway or make_gateway(config)
 
     # ── 디바이스 관리 ────────────────────────────────────────────────
 
@@ -118,57 +121,52 @@ class NotificationService:
         body: str,
         data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """사용자의 모든 활성 단말기에 푸시 발송.
+        """사용자의 모든 활성 단말기에 푸시 발송 (provider-agnostic).
+
+        실제 발송은 ``self.gateway`` 로 위임. 현행 default 는 Expo Push 이며
+        ``PUSH_PROVIDER=fcm|apns`` 로 native FCM/APNs 직접 호출이 가능하다.
 
         Returns:
-            ``{"sent": N, "failed": M, "skipped": K, "tokens": [...]}``.
+            ``{"sent": N, "failed": M, "skipped": K, "tokens": [...], "provider": ..., "detail": ...}``.
             ``skipped`` 은 ``PUSH_HTTP_DISABLED=1`` (dry-run) 모드일 때 nonzero.
         """
         self.config.require_enabled()
         devices = await self.list_active_for_user(db, user_id=user_id)
-        tokens = [d.expo_push_token for d in devices]
-        if not tokens:
-            return {"sent": 0, "failed": 0, "skipped": 0, "tokens": []}
-
-        if self.config.http_disabled:
-            log.info(
-                "push_dry_run user_id=%s tokens=%d title=%s",
-                user_id, len(tokens), title,
-            )
-            return {"sent": 0, "failed": 0, "skipped": len(tokens), "tokens": tokens}
-
-        payload = [
-            {
-                "to": tok,
-                "title": title,
-                "body": body,
-                "data": data or {},
-                "sound": "default",
+        if not devices:
+            return {
+                "sent": 0, "failed": 0, "skipped": 0,
+                "tokens": [], "provider": self.gateway.provider,
             }
-            for tok in tokens
+
+        messages = [
+            PushMessage(
+                token=d.expo_push_token,
+                title=title,
+                body=body,
+                data=data or {},
+                platform=getattr(d, "platform", None),
+            )
+            for d in devices
         ]
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
-        if self.config.expo_access_token:
-            headers["Authorization"] = f"Bearer {self.config.expo_access_token}"
-
-        import httpx
-
-        sent = 0
-        failed = 0
         try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                resp = await client.post(self.config.api_url, json=payload, headers=headers)
-            ok = 200 <= resp.status_code < 300
-            if ok:
-                sent = len(tokens)
-            else:
-                failed = len(tokens)
-                log.warning("push_http_non_2xx status=%s body=%s", resp.status_code, resp.text[:200])
+            result: PushSendResult = await self.gateway.send_batch(messages)
         except Exception as exc:
-            failed = len(tokens)
-            log.exception("push_send_failed user_id=%s err=%s", user_id, exc)
+            log.exception("gateway_send_failed user_id=%s err=%s", user_id, exc)
+            tokens = [m.token for m in messages]
+            return {
+                "sent": 0, "failed": len(tokens), "skipped": 0,
+                "tokens": tokens, "provider": self.gateway.provider,
+                "detail": f"gateway_exc: {exc}"[:300],
+            }
 
-        return {"sent": sent, "failed": failed, "skipped": 0, "tokens": tokens}
+        return {
+            "sent": result.sent,
+            "failed": result.failed,
+            "skipped": result.skipped,
+            "tokens": result.tokens,
+            "provider": self.gateway.provider,
+            "detail": result.detail,
+        }
 
     # ── inbox 통합 helper ────────────────────────────────────────────
 

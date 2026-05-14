@@ -16,3 +16,4 @@ stripe>=9.0.0
 pytest>=8.0.0,<9
 pytest-asyncio>=0.23.0
 pytest-cov>=5.0.0
+aiosqlite>=0.20.0

@@ -2,15 +2,18 @@
 
 ``NotificationService.send_to_user`` 가 Expo Push 직후 호출하는 대상.
 모바일 ``GET /notifications/inbox`` 라우트는 본 서비스의 ``list_for_user`` 를 호출.
+
+E R3-Day 4: ``purge_older_than`` 을 추가해 오래된 알림 자동 정리를 지원
+(retention policy). 기본은 읽은 알림만 삭제 — 미독 알림은 사용자가 확인할 때까지 보존.
 """
 from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Sequence
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -105,6 +108,50 @@ class InboxService:
             .values(read=True, read_at=datetime.now(timezone.utc))
         )
         return res.rowcount
+
+    # ── Retention (E R3-Day 4) ────────────────────────────────────
+
+    async def purge_older_than(
+        self,
+        db: AsyncSession,
+        *,
+        days: int,
+        include_unread: bool = False,
+    ) -> int:
+        """``days`` 일 이전 생성된 알림 삭제. 기본은 read=True 만 (안전).
+
+        Args:
+            days: 보존 기간 (일). 본 시점 - days 이전 created_at 이 삭제 대상.
+            include_unread: True 면 미독 알림도 함께 삭제 (강제 정리). 운영에서는
+                기본 ``False`` 유지 — 사용자가 확인하지 않은 알림이 사라지는 것은
+                위험 (특히 진단/결재).
+
+        Returns:
+            삭제된 row 수.
+
+        Notes:
+            - DB-level CASCADE 가 없으므로 ``ref_id`` 가 가리키는 도메인 객체는
+              영향 받지 않는다.
+            - 매우 큰 테이블이면 batch 로 끊어서 (e.g., 10k row 씩) 호출 권장.
+              본 구현은 단일 DELETE — sub-millisecond 인덱스 스캔 (created_at).
+        """
+        if days < 0:
+            raise ValueError(f"days 는 음수일 수 없음: {days}")
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        stmt = delete(self.Notification).where(
+            self.Notification.created_at < cutoff
+        )
+        if not include_unread:
+            stmt = stmt.where(self.Notification.read.is_(True))
+        res = await db.execute(stmt)
+        deleted = int(res.rowcount or 0)
+        if deleted > 0:
+            log.info(
+                "inbox_purge service=%s deleted=%d cutoff=%s include_unread=%s",
+                self.service_name or "?", deleted, cutoff.isoformat(),
+                include_unread,
+            )
+        return deleted
 
 
 __all__ = ["InboxService"]
