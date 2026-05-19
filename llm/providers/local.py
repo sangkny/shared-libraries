@@ -37,7 +37,8 @@ class LocalProvider(BaseProvider):
         }
 
     async def chat(self, request: LLMRequest) -> LLMResponse:
-        model_id = self.get_model(request.role)
+        # MEDI D R3 — 요청별 model_id override (multi-modal 라우팅)
+        model_id = request.metadata.get("model_id") or self.get_model(request.role)
         messages = [{"role": m.role, "content": m.content} for m in request.messages]
 
         t0 = time.monotonic()

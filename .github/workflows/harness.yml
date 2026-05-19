@@ -1,0 +1,45 @@
+name: Harness
+
+on:
+  schedule:
+    - cron: "0 17 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  harness-lite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 종속 패키지
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: ontology + Harness 시나리오 메타
+        run: |
+          pytest ontology/tests \
+            tests/test_harness.py::TestHarnessSmoke::test_smoke_scenarios_exist \
+            -q
+
+      - name: GitHub Summary 메모
+        run: |
+          {
+            echo "## Harness 스케줄 잡 — lite"
+            echo "전체 \`python -m harness all\`(**LM Studio/self-hosted** 필요)는 로컬·전용 러너에서 실행하세요."
+            echo ""
+            echo "실패 한 Issue 생성은 다음과 같이 수동/후속 가능합니다:"
+            echo "\`\`\`bash"
+            echo "python .github/scripts/harness_report.py reports/harness/all_latest.json"
+            echo "cat reports/harness/all_latest.json | python .github/scripts/harness_report.py -"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"

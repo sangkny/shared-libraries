@@ -1,0 +1,27 @@
+# PR 때 ontology 단위 테스트 강화
+name: Ontology PR
+
+on:
+  pull_request:
+    paths:
+      - "ontology/**"
+      - "harness/**"
+      - "ontology/tests/**"
+
+permissions:
+  contents: read
+
+jobs:
+  ontology:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt && pip install -e .
+
+      - name: ontology/tests
+        run: pytest ontology/tests -q --maxfail=3
