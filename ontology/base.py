@@ -19,6 +19,9 @@ class OntologyDomain(Enum):
     POLYGLOT = "polyglot"   # 다중 언어 코드 일관성
     KNOWLEDGE = "knowledge"  # RAG · 태스크 임베딩 스키마
     COST = "cost"           # LLM 라우팅 · 예산
+    # MEDI R4-IoT (D R4-IoT W1)
+    IOT_DEVICE = "iot_device"     # 기기 등록·측정 메타
+    HEALTH_DATA = "health_data"   # 통합 건강 시계열
 
 
 # ── 검증기 종류 ───────────────────────────────────────────

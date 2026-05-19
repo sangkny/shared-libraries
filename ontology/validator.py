@@ -1016,9 +1016,25 @@ class OntologyValidator:
         return cls(domain=OntologyDomain.COST,
                    rules=cls._default_rules_cost())
 
+    @classmethod
+    def for_iot_device(cls) -> "OntologyValidator":
+        """MEDI IoT Gateway — 기기·측정값 검증"""
+        return cls(domain=OntologyDomain.IOT_DEVICE,
+                   rules=cls._default_rules_iot_device())
+
+    @classmethod
+    def for_health_data(cls) -> "OntologyValidator":
+        """통합 건강 데이터 시계열"""
+        return cls(domain=OntologyDomain.HEALTH_DATA,
+                   rules=cls._default_rules_health_data())
+
     @staticmethod
     def _load_default_rules(domain: OntologyDomain) -> dict:
         """도메인별 기본 규칙 반환"""
+        if domain == OntologyDomain.IOT_DEVICE:
+            return OntologyValidator._default_rules_iot_device()
+        if domain == OntologyDomain.HEALTH_DATA:
+            return OntologyValidator._default_rules_health_data()
         if domain == OntologyDomain.MEDICAL:
             return {
                 "semantic": {
@@ -1404,6 +1420,64 @@ class OntologyValidator:
                     },
                 ],
             },
+        }
+
+    @staticmethod
+    def _default_rules_iot_device() -> dict:
+        device_types = [
+            "tonometer", "oct", "perimeter", "wearable", "cgm", "bp_monitor",
+        ]
+        return {
+            "semantic": {"device_type_vocab": device_types},
+            "structural": {
+                "required_fields": [
+                    "patient_id", "device_id", "device_type", "recorded_at",
+                ],
+                "field_types": {
+                    "patient_id": "str",
+                    "device_id": "str",
+                    "device_type": "str",
+                    "iop_mmhg": "number",
+                    "blood_glucose_mg_dl": "number",
+                    "bp_systolic": "number",
+                    "bp_diastolic": "number",
+                },
+            },
+            "constraints": {
+                "enums": {"device_type": device_types},
+                "ranges": {
+                    "iop_mmhg": {"min": 0, "max": 80},
+                    "blood_glucose_mg_dl": {"min": 30, "max": 600},
+                    "bp_systolic": {"min": 60, "max": 260},
+                    "bp_diastolic": {"min": 30, "max": 160},
+                },
+            },
+            "dependencies": {
+                "clinical_alerts": {
+                    "iop_high_threshold": 21,
+                    "hyperglycemia_threshold": 180,
+                },
+            },
+        }
+
+    @staticmethod
+    def _default_rules_health_data() -> dict:
+        return {
+            "semantic": {},
+            "structural": {
+                "required_fields": ["patient_id", "metric", "value", "recorded_at"],
+                "field_types": {
+                    "patient_id": "str",
+                    "metric": "str",
+                    "value": "number",
+                },
+            },
+            "constraints": {
+                "enums": {
+                    "metric": ["iop", "glucose", "bp_sys", "bp_dia", "heart_rate"],
+                },
+            },
+            "dependencies": {},
         }
 
     @staticmethod
