@@ -126,6 +126,37 @@ async def _cmd_all(args: argparse.Namespace) -> int:
     return _exit_code(report.pass_rate, args.min_pass_rate)
 
 
+async def _cmd_decision(args: argparse.Namespace) -> int:
+    """decision: 4-에이전트 A/B harness"""
+    from harness.decision_runner import run_decision_harness
+
+    print("\n[Harness CLI] DECISION (4-agent) 시작...")
+    report = await run_decision_harness()
+    report.print_report()
+    if args.save:
+        from harness.reporter import HarnessReporter
+
+        reporter = HarnessReporter(output_dir=args.output_dir)
+        path = reporter.output_dir / "decision_latest.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import json
+
+        path.write_text(
+            json.dumps(
+                {
+                    "agreement_rate": report.agreement_rate,
+                    "pass_rate": report.pass_rate,
+                    "results": [r.__dict__ for r in report.results],
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        print(f"  저장: {path}")
+    return _exit_code(report.pass_rate * 100, args.min_pass_rate)
+
+
 async def _cmd_compare(args: argparse.Namespace) -> int:
     """compare: 현재 실행 결과를 기준선과 비교"""
     from harness.runner import HarnessRunner
@@ -356,6 +387,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_common_args(compare_p)
 
+    # ── decision (4-agent A/B) ─────────────────────────────
+    decision_p = subparsers.add_parser(
+        "decision",
+        help="4-에이전트 legacy vs four_agent 시나리오 (decision_scenarios.json)",
+    )
+    _add_common_args(decision_p)
+
     return parser
 
 
@@ -379,11 +417,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     handlers = {
-        "smoke":   _cmd_smoke,
-        "domain":  _cmd_domain,
-        "tags":    _cmd_tags,
-        "all":     _cmd_all,
-        "compare": _cmd_compare,
+        "smoke":    _cmd_smoke,
+        "domain":   _cmd_domain,
+        "tags":     _cmd_tags,
+        "all":      _cmd_all,
+        "compare":  _cmd_compare,
+        "decision": _cmd_decision,
     }
 
     handler = handlers.get(args.command)

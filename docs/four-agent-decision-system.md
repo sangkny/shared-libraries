@@ -143,11 +143,11 @@ git checkout before-four-agent-v1.0 -- agents/reviewer.py ontology/validator.py 
 
 | 구분 | 결과 |
 |------|------|
-| Mock 연동 (Orchestrator + Pipeline + A/B + 롤백) | **12 passed** |
-| LM Studio 실연동 | **skipped** (게이트: `LM_STUDIO_AVAILABLE=1` + `/v1/models` 200 미충족) |
-| MEDI API E2E | **skipped** (401 — 스택/토큰 미설정) |
-| `agreement_rate` (mock A/B) | **0.80** |
-| 권장 | 단계적 `ab_test` 후 `four_agent` |
+| Mock 연동 (Orchestrator + Pipeline + A/B + 롤백 + Harness decision) | **15+ passed** |
+| LM Studio `--lm-studio-required` | **3 passed** (HTTP 404 → Advocate/Critic **mock fallback**, 실 LLM 미연결) |
+| MEDI Lab E2E (`medi_four_agent_e2e_smoke.sh`) | **200 OK** · `decision_mode=legacy` (컨테이너 env 기본값) |
+| `agreement_rate` (10케이스 A/B) | **0.80** |
+| 권장 | **`gradual_rollout`** (`ab_test` + ROLLOUT 10%부터) |
 
 ---
 
