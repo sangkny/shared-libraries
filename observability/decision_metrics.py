@@ -4,35 +4,42 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-try:
-    from prometheus_client import Counter, Histogram
+_prom_available = False
+_Counter: Any = None
+_Histogram: Any = None
 
-    _HAS_PROM = True
+try:
+    from prometheus_client import Counter as _PromCounter
+    from prometheus_client import Histogram as _PromHistogram
+
+    _Counter = _PromCounter
+    _Histogram = _PromHistogram
+    _prom_available = True
 except ImportError:
-    _HAS_PROM = False
+    pass
 
 _LOCK = threading.Lock()
 _REGISTERED: dict[str, Any] = {}
 
 
 def _counter(name: str, doc: str, labels: tuple[str, ...]) -> Any:
-    if not _HAS_PROM:
+    if not _prom_available or _Counter is None:
         return None
     with _LOCK:
         if name in _REGISTERED:
             return _REGISTERED[name]
-        m = Counter(name, doc, labelnames=labels)
+        m = _Counter(name, doc, labelnames=labels)
         _REGISTERED[name] = m
         return m
 
 
 def _histogram(name: str, doc: str, labels: tuple[str, ...]) -> Any:
-    if not _HAS_PROM:
+    if not _prom_available or _Histogram is None:
         return None
     with _LOCK:
         if name in _REGISTERED:
             return _REGISTERED[name]
-        m = Histogram(
+        m = _Histogram(
             name,
             doc,
             labelnames=labels,
@@ -71,7 +78,7 @@ def record_decision(
     ontology_issues: list[str] | None = None,
 ) -> None:
     """결정 1건 메트릭 기록 (best-effort)."""
-    if not _HAS_PROM:
+    if not _prom_available:
         return
     _ensure()
     dec = (decision or "UNKNOWN").upper()

@@ -126,7 +126,7 @@ class ReviewerAgent(BaseAgent):
             # FixerAgent로 전달
     """
 
-    def __init__(self, *args, ontology_rules: dict | None = None, **kwargs):
+    def __init__(self, *args, ontology_rules: dict[str, Any] | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self._validator = OntologyValidator(
             domain=self.domain,
@@ -144,7 +144,7 @@ class ReviewerAgent(BaseAgent):
     async def run(
         self,
         task:    str,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
     ) -> AgentResult:
         self.log.info(f"[{self.task_id}] ReviewerAgent 시작 (HEAVY 모델)")
         ctx       = context or {}
@@ -158,7 +158,7 @@ class ReviewerAgent(BaseAgent):
         try:
             _model_label = getattr(self.llm, "heavy_model", "") or "gemma-4-26b-a4b"
             _orig_task_tokens = estimate_text_tokens(task)
-            _trim_info: dict | None = None
+            _trim_info: dict[str, Any] | None = None
             if _orig_task_tokens > _budget:
                 # Step 6 — LLM_SUMMARY_LAYER_ENABLED=1 이고 LM Studio 가 닿으면
                 # 결정적 trim 위에 LLM 1-call 요약을 옵션으로 끼운다. 환경 OFF
@@ -301,7 +301,7 @@ class ReviewerAgent(BaseAgent):
     def _build_review_prompt(
         self,
         task:             str,
-        generated:        any,
+        generated:        Any,
         ontology_result:  ValidationResult | None,
     ) -> str:
 
@@ -570,7 +570,7 @@ class AdvocateReviewer:
             _log_four.warning("AdvocateReviewer LLM fallback: %s", exc)
             return self._mock_review(result, ctx)
 
-    def _mock_review(self, result: Any, ctx: dict) -> AdvocateReport:
+    def _mock_review(self, result: Any, ctx: dict[str, Any]) -> AdvocateReport:
         text = _artifact_text(result, ctx).lower()
         domain = (ctx.get("domain") or "software").lower()
         confidence = 0.72
@@ -646,7 +646,7 @@ class CriticReviewer:
             _log_four.warning("CriticReviewer LLM fallback: %s", exc)
             return self._mock_review(result, ctx)
 
-    def _mock_review(self, result: Any, ctx: dict) -> CriticReport:
+    def _mock_review(self, result: Any, ctx: dict[str, Any]) -> CriticReport:
         text = _artifact_text(result, ctx).lower()
         domain = (ctx.get("domain") or "software").lower()
         risk = 0.25

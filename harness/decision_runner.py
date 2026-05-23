@@ -63,7 +63,7 @@ class DecisionHarnessReport:
         print("=" * 60 + "\n")
 
 
-def _load_cases() -> list[dict]:
+def _load_cases() -> list[dict[str, Any]]:
     if not _SCENARIOS_PATH.is_file():
         return []
     data = json.loads(_SCENARIOS_PATH.read_text(encoding="utf-8"))
@@ -82,7 +82,7 @@ async def run_decision_harness() -> DecisionHarnessReport:
         log.warning("No decision scenarios at %s", _SCENARIOS_PATH)
         return report
 
-    def _case_label(case: dict, inp: Any) -> str:
+    def _case_label(case: dict[str, Any], inp: Any) -> str:
         if case.get("label"):
             return str(case["label"])[:40]
         if isinstance(inp, str):

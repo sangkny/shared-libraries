@@ -15,7 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from typing import Any
+
 from agents.pipeline import AgentPipeline  # noqa: E402
+
+CaseInput = str | dict[str, Any]
 
 _SOFTWARE_ADD = {
     "function_name": "add",
@@ -30,7 +34,7 @@ _SOFTWARE_ADD = {
     "has_return_value": True,
 }
 
-CASES = [
+CASES: list[tuple[CaseInput, str, str]] = [
     (_SOFTWARE_ADD, "software", "APPROVE"),
     ("def add(a,b): return a+b", "software", "APPROVE"),
     ("IOP=25 안저 데이터", "iot", "REJECT"),
@@ -44,7 +48,7 @@ CASES = [
 ]
 
 
-async def _run_mode(mode: str) -> dict:
+async def _run_mode(mode: str) -> dict[str, Any]:
     os.environ["AGENT_DECISION_MODE"] = mode
     os.environ.setdefault("AGENT_FOUR_AGENT_MOCK", "1")
     os.environ.setdefault("AGENT_PIPELINE_LITE", "1")
@@ -71,7 +75,7 @@ async def _run_mode(mode: str) -> dict:
     }
 
 
-async def build_report() -> dict:
+async def build_report() -> dict[str, Any]:
     legacy = await _run_mode("legacy")
     four = await _run_mode("four_agent")
 

@@ -82,7 +82,7 @@ class AgentPipeline:
 
     async def run(
         self,
-        task: str,
+        task: str | Any,
         domain: str | None = None,
         request_id: str | None = None,
     ) -> PipelineResult:

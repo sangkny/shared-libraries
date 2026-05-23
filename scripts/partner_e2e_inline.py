@@ -6,11 +6,13 @@ import base64
 import json
 import os
 import urllib.request
+from typing import Any
+from urllib.error import HTTPError
 
 BASE = os.getenv("MEDI_URL", "http://127.0.0.1:8000").rstrip("/")
 
 
-def _post(path: str, payload: dict) -> dict:
+def _post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     req = urllib.request.Request(
         f"{BASE}{path}",
         data=json.dumps(payload).encode(),
@@ -20,7 +22,7 @@ def _post(path: str, payload: dict) -> dict:
     try:
         with urllib.request.urlopen(req, timeout=180) as resp:
             return json.loads(resp.read().decode())
-    except urllib.error.HTTPError as exc:
+    except HTTPError as exc:
         body = exc.read().decode()
         raise RuntimeError(f"{exc.code} {path}: {body}") from exc
 

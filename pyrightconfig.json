@@ -1,0 +1,17 @@
+{
+  "include": [
+    "agents",
+    "harness",
+    "ontology",
+    "observability",
+    "scripts",
+    "tests"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/node_modules"
+  ],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+  "reportMissingTypeArgument": "warning"
+}
