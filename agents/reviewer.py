@@ -15,6 +15,7 @@ ReviewerAgent — Ontology 기반 검증
 """
 import os
 from dataclasses import dataclass, field
+from typing import Any
 from llm.base import ModelRole
 from ontology.base import OntologyDomain, ValidationResult
 from ontology.validator import OntologyValidator
@@ -443,4 +444,182 @@ IMPROVEMENTS:
             ontology_result=ontology_result,
             llm_review=raw,
             improvement_hints=hints,
+        )
+
+
+# ════════════════════════════════════════════════════════════
+# 4-에이전트 확장 — Advocate / Critic (기존 ReviewerAgent 유지)
+# ════════════════════════════════════════════════════════════
+
+import json
+import logging
+
+from .four_agent_types import AdvocateReport, CriticReport
+
+_log_four = logging.getLogger(__name__)
+
+
+def _four_agent_mock_enabled() -> bool:
+    return os.getenv("AGENT_FOUR_AGENT_MOCK", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def _artifact_text(result: Any, context: Any) -> str:
+    if isinstance(result, dict):
+        return json.dumps(result, ensure_ascii=False)[:2000]
+    return str(result or context or "")[:2000]
+
+
+class AdvocateReviewer:
+    """찬성 관점 에이전트 — 결과물이 왜 올바른지 근거 생성"""
+
+    def __init__(self, llm=None, task_id: str = "advocate"):
+        from llm.client import LLMClient
+
+        self.llm = llm or LLMClient()
+        self.task_id = task_id
+
+    async def review(self, result: Any, context: Any = None) -> AdvocateReport:
+        ctx = context if isinstance(context, dict) else {"domain": context or "software"}
+        if _four_agent_mock_enabled():
+            return self._mock_review(result, ctx)
+        domain = ctx.get("domain", "software")
+        text = _artifact_text(result, ctx)
+        prompt = f"""당신은 주어진 결과를 옹호하는 역할입니다.
+결과: {text}
+도메인: {domain}
+
+다음을 분석하세요:
+1. 올바른 이유 3가지 이상
+2. 근거가 되는 규칙/표준
+3. 신뢰도 점수 (0.0~1.0)
+
+JSON 응답:
+{{
+  "reasons": ["..."],
+  "standards": ["..."],
+  "confidence": 0.0,
+  "recommendation": "APPROVE",
+  "summary": "..."
+}}"""
+        try:
+            response = await self.llm.chat(
+                prompt,
+                role=ModelRole.HEAVY,
+                system="당신은 결과물의 장점을 분석하는 전문가입니다.",
+            )
+            data = json.loads(response.content)
+            return AdvocateReport(
+                reasons=list(data.get("reasons") or []),
+                standards=list(data.get("standards") or []),
+                confidence=float(data.get("confidence", 0.5)),
+                recommendation=str(data.get("recommendation", "APPROVE")),
+                summary=str(data.get("summary", "")),
+            )
+        except Exception as exc:
+            _log_four.warning("AdvocateReviewer LLM fallback: %s", exc)
+            return self._mock_review(result, ctx)
+
+    def _mock_review(self, result: Any, ctx: dict) -> AdvocateReport:
+        text = _artifact_text(result, ctx).lower()
+        domain = (ctx.get("domain") or "software").lower()
+        confidence = 0.72
+        reasons = ["구조가 명확함", "도메인 규칙 준수 가능성 높음"]
+        if "python" in text or "def " in text:
+            confidence = 0.88
+            reasons.append("코드 스타일 적합")
+        if "결재" in text or "approval" in text:
+            confidence = 0.82
+        if domain == "medical" and ("pii" in text or "주민" in text):
+            confidence = 0.35
+        if domain in ("iot", "iot_device") and "iop" in text:
+            confidence = 0.45
+        if "경계값" in text or "0.65" in text:
+            confidence = 0.65
+        return AdvocateReport(
+            reasons=reasons,
+            standards=["ISO-13485", "internal-policy"],
+            confidence=confidence,
+            recommendation="APPROVE",
+            summary="mock advocate",
+        )
+
+
+class CriticReviewer:
+    """반대 관점 에이전트 — 악마의 변호인"""
+
+    def __init__(self, llm=None, task_id: str = "critic"):
+        from llm.client import LLMClient
+
+        self.llm = llm or LLMClient()
+        self.task_id = task_id
+
+    async def review(self, result: Any, context: Any = None) -> CriticReport:
+        ctx = context if isinstance(context, dict) else {"domain": context or "software"}
+        if _four_agent_mock_enabled():
+            return self._mock_review(result, ctx)
+        domain = ctx.get("domain", "software")
+        text = _artifact_text(result, ctx)
+        prompt = f"""당신은 악마의 변호인입니다. 결과의 문제점을 찾으세요.
+결과: {text}
+도메인: {domain}
+
+다음을 분석하세요:
+1. 문제점 또는 위험 요소 3가지 이상
+2. 위반 가능한 규칙/표준
+3. 위험도 점수 (0.0~1.0, 높을수록 위험)
+
+JSON 응답:
+{{
+  "issues": ["..."],
+  "violated_standards": ["..."],
+  "risk_score": 0.0,
+  "recommendation": "REJECT",
+  "summary": "..."
+}}"""
+        try:
+            response = await self.llm.chat(
+                prompt,
+                role=ModelRole.HEAVY,
+                system="당신은 결과물의 위험과 문제를 발굴하는 비판적 전문가입니다.",
+            )
+            data = json.loads(response.content)
+            return CriticReport(
+                issues=list(data.get("issues") or []),
+                violated_standards=list(data.get("violated_standards") or []),
+                risk_score=float(data.get("risk_score", 0.5)),
+                recommendation=str(data.get("recommendation", "REVISE")),
+                summary=str(data.get("summary", "")),
+            )
+        except Exception as exc:
+            _log_four.warning("CriticReviewer LLM fallback: %s", exc)
+            return self._mock_review(result, ctx)
+
+    def _mock_review(self, result: Any, ctx: dict) -> CriticReport:
+        text = _artifact_text(result, ctx).lower()
+        domain = (ctx.get("domain") or "software").lower()
+        risk = 0.25
+        issues = ["미검증 엣지 케이스"]
+        violated: list[str] = []
+        if domain == "medical" and ("pii" in text or "주민" in text):
+            risk = 0.92
+            issues.extend(["PII 노출", "HIPAA 위반 가능"])
+            violated.append("HIPAA")
+        if domain in ("iot", "iot_device") and "iop" in text and "25" in text:
+            risk = 0.90
+            issues.append("IOP 임계값 초과")
+            violated.append("IOP_RANGE")
+        if "경계값" in text or "0.65" in text:
+            risk = 0.35
+            issues.append("신뢰도 경계값 — 의료 검토 필요")
+        rec = "REJECT" if risk >= 0.85 else "REVISE"
+        return CriticReport(
+            issues=issues,
+            violated_standards=violated,
+            risk_score=risk,
+            recommendation=rec,
+            summary="mock critic",
         )

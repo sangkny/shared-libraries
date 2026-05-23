@@ -963,6 +963,78 @@ class OntologyValidator:
         self.rules.update(rules)
         log.info(f"규칙 업데이트 완료 — domain={self.domain.value}")
 
+    # ── 4-에이전트 중재 (신규 — 기존 validate API 유지) ─────
+
+    DOMAIN_WEIGHTS = {
+        "medical":   {"advocate": 0.40, "critic": 0.60},
+        "software":  {"advocate": 0.50, "critic": 0.50},
+        "business":  {"advocate": 0.55, "critic": 0.45},
+        "iot":       {"advocate": 0.40, "critic": 0.60},
+        "iot_device": {"advocate": 0.40, "critic": 0.60},
+        "knowledge": {"advocate": 0.50, "critic": 0.50},
+    }
+
+    @staticmethod
+    def _normalize_mediation_domain(domain: str) -> str:
+        d = (domain or "software").strip().lower()
+        if d in ("iot_device", "health_data"):
+            return "iot"
+        return d
+
+    def mediate(self, advocate, critic, domain: str, result: Any = None):
+        """찬성/반대 보고서 중재 → final_score 산출"""
+        from agents.four_agent_types import MediationResult
+
+        dom = self._normalize_mediation_domain(domain)
+        w = self.DOMAIN_WEIGHTS.get(dom, {"advocate": 0.5, "critic": 0.5})
+
+        advocate_score = float(getattr(advocate, "confidence", 0.0) or 0.0)
+        critic_score = 1.0 - float(getattr(critic, "risk_score", 1.0) or 1.0)
+        final_score = advocate_score * w["advocate"] + critic_score * w["critic"]
+
+        ontology_issues = self._check_existing_rules(dom, result, advocate, critic)
+        if ontology_issues:
+            final_score *= 0.5
+
+        return MediationResult(
+            final_score=round(final_score, 4),
+            advocate_score=advocate_score,
+            critic_score=critic_score,
+            ontology_issues=ontology_issues,
+            domain=dom,
+            weights=w,
+            advocate_report=advocate,
+            critic_report=critic,
+        )
+
+    def _check_existing_rules(
+        self,
+        domain: str,
+        result: Any = None,
+        advocate=None,
+        critic=None,
+    ) -> list[str]:
+        """경량 ontology 신호 — four-agent 중재 시 점수 보정용"""
+        issues: list[str] = []
+        text = str(result or "").lower()
+        if domain == "medical":
+            if any(k in text for k in ("pii", "주민", "ssn", "resident_registration")):
+                issues.append("PII_DETECTED")
+        if domain == "iot":
+            compact = text.replace(" ", "")
+            if "iop=25" in compact or ("iop" in text and "25" in text):
+                issues.append("IOP_OUT_OF_RANGE")
+        if critic is not None:
+            for std in getattr(critic, "violated_standards", []) or []:
+                if std and std not in issues:
+                    issues.append(str(std))
+        return issues
+
+    @classmethod
+    def for_iot_device(cls) -> "OntologyValidator":
+        """IoT 기기 도메인 검증기 (four-agent weights: iot)"""
+        return cls.for_domain("iot_device")
+
     # ── 팩토리 메서드 ─────────────────────────────────────
 
     @classmethod

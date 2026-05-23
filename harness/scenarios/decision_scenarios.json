@@ -1,0 +1,11 @@
+{
+  "domain": "DECISION",
+  "description": "Legacy vs 4-agent decision harness scenarios",
+  "cases": [
+    {"input": "올바른 Python 코드", "domain": "software", "expected": "APPROVE"},
+    {"input": "IOP=25 안저 데이터", "domain": "iot", "expected": "REJECT"},
+    {"input": "PII 포함 의료 기록", "domain": "medical", "expected": "REJECT"},
+    {"input": "정상 결재 요청", "domain": "business", "expected": "APPROVE"},
+    {"input": "경계값 신뢰도 0.65", "domain": "medical", "expected": "REVISE"}
+  ]
+}
