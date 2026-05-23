@@ -16,9 +16,11 @@ from llm.base import ModelRole
 from ontology.base import OntologyDomain
 from .base import BaseAgent, AgentType, AgentResult, AgentStatus, LoreEntry
 from .context_chunking import estimate_orchestrator_input_tokens, prepare_orchestrator_context
+from .feature_flags import AgentFeatureFlags
+from .pipeline import AgentPipeline
 from .planner import PlannerAgent
 from .generator import GeneratorAgent
-from .reviewer import ReviewerAgent
+from .reviewer import ReviewerAgent, ReviewResult
 from .fixer import FixerAgent
 
 # 추정 초과 시 LM Studio 등 로컴 모델의 context overflow 경고
@@ -47,6 +49,8 @@ class OrchestratorResult:
     agent_results: list[AgentResult]  = field(default_factory=list)
     total_latency_ms: float           = 0.0
     error:      str                   = ""
+    decision_mode: str                = "legacy"
+    audit_trail: dict                 = field(default_factory=dict)
 
     @property
     def summary(self) -> str:
@@ -112,6 +116,9 @@ class Orchestrator(BaseAgent):
         self._generator = GeneratorAgent(**agent_kwargs)
         self._reviewer  = ReviewerAgent(**agent_kwargs)
         self._fixer     = FixerAgent(**agent_kwargs)
+        self._decision_pipe = AgentPipeline(
+            domain=domain, llm=self.llm, task_id=self.task_id
+        )
 
     @property
     def agent_type(self) -> AgentType:
@@ -226,19 +233,20 @@ class Orchestrator(BaseAgent):
                 )
             generated = gen_result.output
 
-            # Step 3: Review
-            rev_ctx = {"generated": generated, "iteration": i}
-            rev_result = await self._reviewer.run(task, rev_ctx)
+            # Step 3: Review (피처 플래그 — legacy | four_agent)
+            review, rev_result, decision_mode, audit_trail = (
+                await self._pipeline_review_step(task, generated, i)
+            )
             agent_results.append(rev_result)
 
-            review = rev_result.output
             if rev_result.success and review and review.passed:
-                # ✅ 통과!
                 return OrchestratorResult(
                     task_id=self.task_id, strategy=self.strategy,
                     domain=self.domain, passed=True, output=generated,
                     iterations=i+1, agent_results=agent_results,
                     lore=self._collect_lore(),
+                    decision_mode=decision_mode,
+                    audit_trail=audit_trail,
                 )
 
             # Step 4: Fix (마지막 iter가 아니면)
@@ -487,6 +495,79 @@ class Orchestrator(BaseAgent):
                 iterations=1, lore=self._collect_lore(),
                 error=f"타임아웃 ({self._fastest_timeout}s 초과)",
             )
+
+    # ── PIPELINE Review 분기 (legacy | four_agent) ─────────
+
+    async def _pipeline_review_step(
+        self,
+        task: str,
+        generated: Any,
+        iteration: int,
+    ) -> tuple[ReviewResult | None, AgentResult, str, dict]:
+        """Step 3 Review — 피처 플래그에 따라 ReviewerAgent 또는 4-에이전트"""
+        if AgentFeatureFlags.is_four_agent_enabled(self.task_id):
+            return await self._four_agent_review_step(generated, iteration)
+
+        rev_ctx = {"generated": generated, "iteration": iteration}
+        rev_result = await self._reviewer.run(task, rev_ctx)
+        review = rev_result.output
+        return review, rev_result, "legacy", {}
+
+    async def _four_agent_review_step(
+        self,
+        generated: Any,
+        iteration: int,
+    ) -> tuple[ReviewResult | None, AgentResult, str, dict]:
+        """Advocate + Critic → mediate → DecisionGate"""
+        pr = await self._decision_pipe.run_decision(
+            generated,
+            domain=self.domain.value,
+            request_id=self.task_id,
+        )
+        review = self._pipeline_result_to_review(pr)
+        rev_result = AgentResult(
+            agent_type=AgentType.REVIEWER,
+            task_id=self.task_id,
+            status=AgentStatus.COMPLETED,
+            output=review,
+            iteration=iteration,
+            metadata={
+                "decision_mode": pr.mode,
+                "decision": pr.decision.decision,
+                "final_score": pr.decision.final_score,
+            },
+        )
+        self.log.info(
+            "[%s] four_agent decision=%s score=%.3f",
+            self.task_id,
+            pr.decision.decision,
+            pr.decision.final_score,
+        )
+        return review, rev_result, pr.mode, dict(pr.audit_trail)
+
+    @staticmethod
+    def _pipeline_result_to_review(pr) -> ReviewResult:
+        dec = pr.decision.decision
+        passed = dec == "APPROVE"
+        trail = pr.audit_trail or {}
+        feedback = (
+            trail.get("critic_summary")
+            or trail.get("advocate_summary")
+            or f"four_agent decision={dec} score={pr.decision.final_score:.3f}"
+        )
+        hints: list[str] = []
+        if dec == "REVISE":
+            hints.append("4-에이전트: 수정 후 재검토 권장")
+        elif dec == "REJECT":
+            hints.append("4-에이전트: 차단 — Fixer 또는 재생성 필요")
+        if trail.get("ontology_issues"):
+            hints.append(f"Ontology: {trail['ontology_issues']}")
+        return ReviewResult(
+            passed=passed,
+            feedback=feedback,
+            llm_review=str(trail),
+            improvement_hints=hints,
+        )
 
     # ── 내부 헬퍼 ─────────────────────────────────────────
     def _collect_lore(self) -> list[LoreEntry]:

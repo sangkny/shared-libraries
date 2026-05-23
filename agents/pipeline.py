@@ -100,8 +100,18 @@ class AgentPipeline:
                 if fix_result.success:
                     artifact = fix_result.output
 
-        use_four_agent = AgentFeatureFlags.is_four_agent_enabled(req_id)
-        if use_four_agent:
+        return await self.run_decision(artifact, domain_eff, req_id)
+
+    async def run_decision(
+        self,
+        artifact: Any,
+        domain: str | None = None,
+        request_id: str | None = None,
+    ) -> PipelineResult:
+        """생성물에 대한 legacy / four-agent 결정만 실행 (Orchestrator 연동용)"""
+        domain_eff = (domain or self._domain_str).lower()
+        req_id = request_id or self.task_id
+        if AgentFeatureFlags.is_four_agent_enabled(req_id):
             return await self._four_agent_path(artifact, domain_eff, req_id)
         return await self._legacy_path(artifact, domain_eff, req_id)
 

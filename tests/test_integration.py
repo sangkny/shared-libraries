@@ -291,3 +291,111 @@ class TestAgentLLMIntegration:
         # SSN 때문에 반드시 FAIL
         assert review.passed is False
         assert review.ontology_result is not None
+
+
+# ════════════════════════════════════════════════════════════
+# LEVEL 5: Orchestrator + 4-에이전트 연동
+# ════════════════════════════════════════════════════════════
+class TestOrchestratorFourAgent:
+    """Orchestrator PIPELINE — four_agent 분기 + audit_trail"""
+
+    @pytest.mark.asyncio
+    async def test_orchestrator_four_agent_mock_path(self, monkeypatch):
+        """LLM 없이 mock Advocate/Critic — Orchestrator 연동"""
+        from unittest.mock import AsyncMock, patch
+
+        from agents.base import AgentResult, AgentStatus, AgentType
+        from agents.orchestrator import Orchestrator, OrchestraStrategy
+        from agents.planner import ExecutionPlan
+        from ontology.base import OntologyDomain
+
+        monkeypatch.setenv("AGENT_DECISION_MODE", "four_agent")
+        monkeypatch.setenv("AGENT_FOUR_AGENT_MOCK", "1")
+
+        orch = Orchestrator(
+            domain=OntologyDomain.SOFTWARE,
+            strategy=OrchestraStrategy.PIPELINE,
+            max_iterations=1,
+            task_id="integ-four-mock",
+        )
+        generated = {
+            "function_name": "merge_sorted",
+            "parameters": ["a", "b"],
+            "return_type": "list",
+            "line_count": 12,
+            "language": "python",
+        }
+        plan_result = AgentResult(
+            agent_type=AgentType.PLANNER,
+            task_id=orch.task_id,
+            status=AgentStatus.COMPLETED,
+            output=ExecutionPlan(goal="merge", steps=["1"], domain="software"),
+        )
+        gen_result = AgentResult(
+            agent_type=AgentType.GENERATOR,
+            task_id=orch.task_id,
+            status=AgentStatus.COMPLETED,
+            output=generated,
+        )
+
+        with patch.object(orch._planner, "run", AsyncMock(return_value=plan_result)):
+            with patch.object(orch._generator, "run", AsyncMock(return_value=gen_result)):
+                result = await orch.execute("정렬된 두 리스트 병합 함수", context={})
+
+        print(f"\n  {result.summary}")
+        print(f"  decision_mode={result.decision_mode}")
+        assert result.decision_mode == "four_agent"
+        assert result.audit_trail.get("mode") == "four_agent"
+
+    @pytest.mark.asyncio
+    @pytest.mark.requires_lm_studio
+    async def test_orchestrator_four_agent_real_llm(self, monkeypatch):
+        """LM Studio — Advocate/Critic 실호출 + Orchestrator 연동"""
+        from unittest.mock import AsyncMock, patch
+
+        from agents.base import AgentResult, AgentStatus, AgentType
+        from agents.orchestrator import Orchestrator, OrchestraStrategy
+        from agents.planner import ExecutionPlan
+        from ontology.base import OntologyDomain
+
+        monkeypatch.setenv("AGENT_DECISION_MODE", "four_agent")
+        monkeypatch.delenv("AGENT_FOUR_AGENT_MOCK", raising=False)
+
+        orch = Orchestrator(
+            domain=OntologyDomain.SOFTWARE,
+            strategy=OrchestraStrategy.PIPELINE,
+            max_iterations=1,
+            task_id="integ-four-lm",
+        )
+        generated = {
+            "function_name": "safe_divide",
+            "parameters": ["a", "b"],
+            "return_type": "float",
+            "line_count": 8,
+            "complexity": 2,
+            "language": "python",
+        }
+        plan_result = AgentResult(
+            agent_type=AgentType.PLANNER,
+            task_id=orch.task_id,
+            status=AgentStatus.COMPLETED,
+            output=ExecutionPlan(goal="divide", steps=["1"], domain="software"),
+        )
+        gen_result = AgentResult(
+            agent_type=AgentType.GENERATOR,
+            task_id=orch.task_id,
+            status=AgentStatus.COMPLETED,
+            output=generated,
+        )
+
+        with patch.object(orch._planner, "run", AsyncMock(return_value=plan_result)):
+            with patch.object(orch._generator, "run", AsyncMock(return_value=gen_result)):
+                result = await orch.execute(
+                    "0으로 나누기를 방지하는 safe_divide 함수",
+                    context={},
+                )
+
+        print(f"\n  {result.summary}")
+        print(f"  decision={result.audit_trail.get('decision')}")
+        assert result.decision_mode == "four_agent"
+        assert result.audit_trail
