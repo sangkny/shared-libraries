@@ -162,24 +162,25 @@ git checkout before-four-agent-v1.0 -- agents/reviewer.py ontology/validator.py 
 |------|------|
 | Mock 연동 (Orchestrator + Pipeline + A/B + 롤백 + Harness decision) | **15+ passed** |
 | LM Studio Docker 실연동 | **4 passed** (`test_four_agent_real_llm` 3 + orchestrator 1) · `host.docker.internal:8000` |
-| MEDI Lab E2E (`medi_four_agent_e2e_smoke.sh`) | **200 OK** · `decision_mode=legacy` (컨테이너 env 기본값) |
 | `agreement_rate` (10케이스 A/B) | **0.80** |
-| 권장 | **`gradual_rollout`** (`ab_test` + ROLLOUT 10%부터) |
+| 운영 적용 | **`ab_test` + `ROLLOUT=10`** · `apply_gradual_rollout.sh` |
 
 ---
 
-## 7. 관련 파일
+## 7. 점진 롤아웃 (적용됨)
+
+`projects/docs/four-agent-rollout.md` · `projects/.env.local` · `docker-compose.dev.yml` `env_file: .env.local` (AGENT_* `environment` 미주입)
+
+---
+
+## 8. 관련 파일
 
 | 경로 | 역할 |
 |------|------|
 | `agents/feature_flags.py` | 모드·rollout |
-| `agents/pipeline.py` | `run_decision()` |
-| `agents/orchestrator.py` | PIPELINE Step 3 분기 |
-| `agents/decision_gate.py` | 도메인별 임계값 |
-| `agents/reviewer.py` | `ReviewerAgent` + `AdvocateReviewer` + `CriticReviewer` |
-| `ontology/validator.py` | `mediate()` |
-| `harness/scenarios/decision_scenarios.json` | Harness DECISION 시나리오 |
+| `agents/llm_json.py` | LM Studio JSON 파싱 |
+| `scripts/apply_gradual_rollout.sh` | compose 재기동 |
+| `scripts/run_lm_studio_four_agent_tests.sh` | LM Studio 실연동 |
 | `scripts/rollback_four_agent.sh` | 롤백 |
-| `scripts/generate_comparison_report.py` | Legacy vs 4-agent 리포트 |
 
-메타 문서: `CURSOR_HANDOVER.md` §「4-에이전트 결정 시스템」· `book/appendix/env-reference.md` §4-에이전트.
+메타: `CURSOR_HANDOVER.md` · `book/part7/ch31-four-agent-decision.md` · `projects/docs/four-agent-rollout.md`
