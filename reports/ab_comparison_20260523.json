@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-23T10:17:52.999613+00:00",
+  "generated_at": "2026-05-23T16:17:00.641901+00:00",
   "test_cases": 10,
   "legacy": {
     "total_tests": 10,
@@ -15,7 +15,7 @@
     "total_tests": 10,
     "passed": 8,
     "pass_rate": 0.8,
-    "avg_latency_ms": 0.4,
+    "avg_latency_ms": 170.0,
     "decisions": {
       "APPROVE": 5,
       "REJECT": 3,

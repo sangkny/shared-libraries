@@ -17,8 +17,21 @@ if str(ROOT) not in sys.path:
 
 from agents.pipeline import AgentPipeline  # noqa: E402
 
+_SOFTWARE_ADD = {
+    "function_name": "add",
+    "parameters": ["a", "b"],
+    "return_type": "int",
+    "line_count": 3,
+    "complexity": 1,
+    "parameter_count": 2,
+    "nesting_depth": 1,
+    "language": "python",
+    "is_async": False,
+    "has_return_value": True,
+}
+
 CASES = [
-    ("올바른 Python 코드", "software", "APPROVE"),
+    (_SOFTWARE_ADD, "software", "APPROVE"),
     ("def add(a,b): return a+b", "software", "APPROVE"),
     ("IOP=25 안저 데이터", "iot", "REJECT"),
     ("IOP=25 device reading", "iot_device", "REJECT"),
@@ -41,7 +54,8 @@ async def _run_mode(mode: str) -> dict:
     passed = 0
     for inp, domain, expected in CASES:
         t0 = time.perf_counter()
-        out = await pipe.run(inp, domain, request_id=f"rpt-{mode}-{domain}-{hash(inp) % 1000}")
+        rid = hash(repr(inp)) % 1000
+        out = await pipe.run(inp, domain, request_id=f"rpt-{mode}-{domain}-{rid}")
         latencies.append((time.perf_counter() - t0) * 1000)
         dec = out.decision.decision
         decisions[dec] = decisions.get(dec, 0) + 1
@@ -72,7 +86,7 @@ async def build_report() -> dict:
         if leg.decision.decision != fa.decision.decision:
             disagreements.append(
                 {
-                    "input": inp[:60],
+                    "input": (inp if isinstance(inp, str) else repr(inp))[:60],
                     "domain": domain,
                     "expected": expected,
                     "legacy": leg.decision.decision,
