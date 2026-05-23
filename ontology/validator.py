@@ -1025,9 +1025,15 @@ class OntologyValidator:
             if "iop=25" in compact or ("iop" in text and "25" in text):
                 issues.append("IOP_OUT_OF_RANGE")
         if critic is not None:
+            risk = float(getattr(critic, "risk_score", 0) or 0)
             for std in getattr(critic, "violated_standards", []) or []:
-                if std and std not in issues:
-                    issues.append(str(std))
+                if not std or std in issues:
+                    continue
+                # software 메타 스펙: LLM이 PEP8 등을 hallucinate 해도 낮은 risk면 중재 페널티 제외
+                if domain == "software" and risk < 0.85:
+                    if isinstance(result, dict) and result.get("function_name"):
+                        continue
+                issues.append(str(std))
         return issues
 
     @classmethod

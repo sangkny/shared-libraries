@@ -66,6 +66,12 @@
 
 Mock 연동이 통과하면 “코드 경로·플래그·결과 매핑”이 안전하고, 실연동이 통과하면 “운영 LLM 환경에서도 동작”을 의미합니다.
 
+### 3.2.1 Harness `software` 케이스 (2026-05-23)
+
+- **원인**: 입력 `"올바른 Python 코드"` 만으로는 software ontology(`function_name` 등) 미충족 → legacy·4-agent 모두 `REJECT`.
+- **조치**: `decision_scenarios.json`에 ontology 통과용 함수 메타 dict 사용 · Advocate/Critic software 힌트 · legacy lite 문자열은 ontology skip.
+- **검증**: `harness decision` — software `APPROVE/APPROVE` (LM Studio 실연동).
+
 ### 3.3 통과 기준 (완료 정의)
 
 - `legacy` 기본값에서 기존 Reviewer 경로 유지

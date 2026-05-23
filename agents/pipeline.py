@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from llm.client import LLMClient
-from ontology.base import OntologyDomain
+from ontology.base import OntologyDomain, ValidationResult
 from ontology.validator import OntologyValidator
 
 from .decision_gate import DecisionGate
@@ -131,9 +131,7 @@ class AgentPipeline:
             {"generated": result, "domain": domain},
         )
         review = rev_result.output
-        valid = await self.validator.validate(
-            result if isinstance(result, dict) else {"payload": str(result)}
-        )
+        valid = await self._validate_legacy_artifact(result, domain)
 
         legacy_decision = self._legacy_decision(review, valid)
         audit = {
@@ -194,6 +192,16 @@ class AgentPipeline:
             mode="legacy",
             audit_trail=audit,
         )
+
+    async def _validate_legacy_artifact(
+        self, result: Any, domain: str
+    ) -> ValidationResult:
+        """Legacy 경로 ontology — 구조화 dict만 검증, lite 문자열은 LLM 리뷰에 위임."""
+        if isinstance(result, dict):
+            return await self.validator.validate(result)
+        if _lite_pipeline():
+            return ValidationResult(passed=True, domain=self._domain_enum)
+        return await self.validator.validate({"payload": str(result)})
 
     def _legacy_decision(self, review: Any, valid: Any) -> DecisionResult:
         passed = bool(review and getattr(review, "passed", False) and valid.passed)

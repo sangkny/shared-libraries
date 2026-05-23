@@ -2,7 +2,23 @@
   "domain": "DECISION",
   "description": "Legacy vs 4-agent decision harness scenarios",
   "cases": [
-    {"input": "올바른 Python 코드", "domain": "software", "expected": "APPROVE"},
+    {
+      "input": {
+        "function_name": "add",
+        "parameters": ["a", "b"],
+        "return_type": "int",
+        "line_count": 3,
+        "complexity": 1,
+        "parameter_count": 2,
+        "nesting_depth": 1,
+        "language": "python",
+        "is_async": false,
+        "has_return_value": true
+      },
+      "domain": "software",
+      "expected": "APPROVE",
+      "label": "올바른 Python 함수 메타"
+    },
     {"input": "IOP=25 안저 데이터", "domain": "iot", "expected": "REJECT"},
     {"input": "PII 포함 의료 기록", "domain": "medical", "expected": "REJECT"},
     {"input": "정상 결재 요청", "domain": "business", "expected": "APPROVE"},

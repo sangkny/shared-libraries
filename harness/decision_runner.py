@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from typing import Any
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -81,11 +82,22 @@ async def run_decision_harness() -> DecisionHarnessReport:
         log.warning("No decision scenarios at %s", _SCENARIOS_PATH)
         return report
 
+    def _case_label(case: dict, inp: Any) -> str:
+        if case.get("label"):
+            return str(case["label"])[:40]
+        if isinstance(inp, str):
+            return inp[:40]
+        if isinstance(inp, dict):
+            fn = inp.get("function_name")
+            return str(fn or "structured")[:40]
+        return str(inp)[:40]
+
     matches = 0
     for i, case in enumerate(cases):
         inp = case["input"]
         domain = case["domain"]
         expected = case.get("expected", "APPROVE")
+        label = _case_label(case, inp)
         t0 = time.monotonic()
         try:
             import os as _os
@@ -102,7 +114,7 @@ async def run_decision_harness() -> DecisionHarnessReport:
             passed = fd == expected or ld == expected
             report.results.append(
                 DecisionScenarioResult(
-                    name=inp[:40],
+                    name=label,
                     domain=domain,
                     expected=expected,
                     legacy_decision=ld,
@@ -115,7 +127,7 @@ async def run_decision_harness() -> DecisionHarnessReport:
         except Exception as exc:
             report.results.append(
                 DecisionScenarioResult(
-                    name=inp[:40],
+                    name=label,
                     domain=domain,
                     expected=expected,
                     legacy_decision="ERR",

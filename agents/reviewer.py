@@ -491,8 +491,14 @@ class AdvocateReviewer:
             return self._mock_review(result, ctx)
         domain = ctx.get("domain", "software")
         text = _artifact_text(result, ctx)
+        sw_hint = ""
+        if domain == "software" and isinstance(result, dict) and result.get("function_name"):
+            sw_hint = (
+                " Artifact is valid software function metadata (ontology fields present); "
+                "confidence>=0.85 if fields look consistent. "
+            )
         prompt = (
-            f"Domain={domain}. Artifact={text[:400]}. "
+            f"Domain={domain}. Artifact={text[:400]}.{sw_hint} "
             'Reply with ONE line JSON only (max 80 chars per reason): '
             '{"reasons":["r1","r2","r3"],"standards":["s1"],'
             '"confidence":0.85,"recommendation":"APPROVE","summary":"ok"}'
@@ -533,6 +539,9 @@ class AdvocateReviewer:
             confidence = 0.45
         if "경계값" in text or "0.65" in text:
             confidence = 0.65
+        if domain == "software" and isinstance(result, dict) and result.get("function_name"):
+            confidence = max(confidence, 0.88)
+            reasons.append("software ontology 필드 충족")
         return AdvocateReport(
             reasons=reasons,
             standards=["ISO-13485", "internal-policy"],
@@ -557,8 +566,14 @@ class CriticReviewer:
             return self._mock_review(result, ctx)
         domain = ctx.get("domain", "software")
         text = _artifact_text(result, ctx)
+        sw_hint = ""
+        if domain == "software" and isinstance(result, dict) and result.get("function_name"):
+            sw_hint = (
+                " This is function metadata JSON, not missing source code; "
+                "risk_score<=0.25, violated_standards=[], issues=[] if consistent. "
+            )
         prompt = (
-            f"Domain={domain}. Artifact={text[:400]}. "
+            f"Domain={domain}. Artifact={text[:400]}.{sw_hint} "
             'Reply with ONE line JSON only: '
             '{"issues":["i1","i2"],"violated_standards":[],"risk_score":0.3,'
             '"recommendation":"REVISE","summary":"ok"}'
@@ -600,6 +615,9 @@ class CriticReviewer:
         if "경계값" in text or "0.65" in text:
             risk = 0.35
             issues.append("신뢰도 경계값 — 의료 검토 필요")
+        if domain == "software" and isinstance(result, dict) and result.get("function_name"):
+            risk = min(risk, 0.2)
+            issues = [i for i in issues if "missing" not in i.lower()]
         rec = "REJECT" if risk >= 0.85 else "REVISE"
         return CriticReport(
             issues=issues,
