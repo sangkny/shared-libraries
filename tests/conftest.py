@@ -86,6 +86,10 @@ def pytest_configure(config: pytest.Config) -> None:
             "--lm-studio-required 로 강제 실행)"
         ),
     )
+    config.addinivalue_line(
+        "markers",
+        "integration: HTTP/API 또는 다중 모듈 연동 테스트",
+    )
 
 
 def pytest_collection_modifyitems(
