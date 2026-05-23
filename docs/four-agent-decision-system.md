@@ -76,9 +76,17 @@ Mock 연동이 통과하면 “코드 경로·플래그·결과 매핑”이 안
 
 ---
 
-## 4. 실행 방법
+## 4. LM Studio 주소 (로컬 LLM)
 
-### 4.1 Mock 연동 (권장 · LM Studio 불필요)
+| 환경 | `LOCAL_BASE_URL` / `LM_STUDIO_BASE_URL` |
+|------|----------------------------------------|
+| Windows 호스트 (LM Studio) | `http://127.0.0.1:8000/v1` |
+| Docker 컨테이너 (MEDI/CoOps/shared-libs) | `http://host.docker.internal:8000/v1` |
+| WSL에서 pytest | **Docker 권장** (WSL `127.0.0.1:8000` 은 다른 서비스가 점유할 수 있음) |
+
+게이트 확인: `curl http://127.0.0.1:8000/v1/models` → HTTP 200 + `"data"` 배열.
+
+### 4.1 Mock 연동 (LM Studio 불필요)
 
 ```bash
 cd projects/shared-libraries
@@ -95,17 +103,26 @@ python -m pytest \
   -v
 ```
 
-### 4.2 LM Studio 실연동
+### 4.2 LM Studio 실연동 (권장: Docker)
 
 ```bash
-# LM Studio: Server 0.0.0.0:8000, GET /v1/models → 200
+# projects/ 디렉터리 — LM Studio Windows http://127.0.0.1:8000 가동 중
+bash shared-libraries/scripts/run_lm_studio_four_agent_tests.sh
+```
+
+수동:
+
+```bash
+export LOCAL_BASE_URL=http://host.docker.internal:8000/v1
 export LM_STUDIO_AVAILABLE=1
 export AGENT_DECISION_MODE=four_agent
 unset AGENT_FOUR_AGENT_MOCK
-
-python -m pytest tests/integration/test_orchestrator_four_agent.py \
-  --lm-studio-required -v -k lm_studio
+docker exec -e LOCAL_BASE_URL -e LM_STUDIO_AVAILABLE=1 -e AGENT_DECISION_MODE=four_agent \
+  -e AGENT_FOUR_AGENT_MOCK= shared-libs-dev \
+  python -m pytest tests/integration/test_four_agent_real_llm.py --lm-studio-required -v
 ```
+
+Advocate/Critic은 **FAST** (`google/gemma-4-e4b`) 사용 — HEAVY(26b) 빈 응답 방지.
 
 ### 4.3 비교 리포트
 
@@ -144,7 +161,7 @@ git checkout before-four-agent-v1.0 -- agents/reviewer.py ontology/validator.py 
 | 구분 | 결과 |
 |------|------|
 | Mock 연동 (Orchestrator + Pipeline + A/B + 롤백 + Harness decision) | **15+ passed** |
-| LM Studio `--lm-studio-required` | **3 passed** (HTTP 404 → Advocate/Critic **mock fallback**, 실 LLM 미연결) |
+| LM Studio Docker 실연동 | **4 passed** (`test_four_agent_real_llm` 3 + orchestrator 1) · `host.docker.internal:8000` |
 | MEDI Lab E2E (`medi_four_agent_e2e_smoke.sh`) | **200 OK** · `decision_mode=legacy` (컨테이너 env 기본값) |
 | `agreement_rate` (10케이스 A/B) | **0.80** |
 | 권장 | **`gradual_rollout`** (`ab_test` + ROLLOUT 10%부터) |

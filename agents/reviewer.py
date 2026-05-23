@@ -455,8 +455,11 @@ import json
 import logging
 
 from .four_agent_types import AdvocateReport, CriticReport
+from .llm_json import parse_llm_json
 
 _log_four = logging.getLogger(__name__)
+
+_FOUR_AGENT_LLM_ROLE = ModelRole.FAST  # LM Studio: HEAVY(26b) 빈 응답 시 FAST(e4b) 사용
 
 
 def _four_agent_mock_enabled() -> bool:
@@ -488,30 +491,21 @@ class AdvocateReviewer:
             return self._mock_review(result, ctx)
         domain = ctx.get("domain", "software")
         text = _artifact_text(result, ctx)
-        prompt = f"""당신은 주어진 결과를 옹호하는 역할입니다.
-결과: {text}
-도메인: {domain}
-
-다음을 분석하세요:
-1. 올바른 이유 3가지 이상
-2. 근거가 되는 규칙/표준
-3. 신뢰도 점수 (0.0~1.0)
-
-JSON 응답:
-{{
-  "reasons": ["..."],
-  "standards": ["..."],
-  "confidence": 0.0,
-  "recommendation": "APPROVE",
-  "summary": "..."
-}}"""
+        prompt = (
+            f"Domain={domain}. Artifact={text[:400]}. "
+            'Reply with ONE line JSON only (max 80 chars per reason): '
+            '{"reasons":["r1","r2","r3"],"standards":["s1"],'
+            '"confidence":0.85,"recommendation":"APPROVE","summary":"ok"}'
+        )
         try:
             response = await self.llm.chat(
                 prompt,
-                role=ModelRole.HEAVY,
-                system="당신은 결과물의 장점을 분석하는 전문가입니다.",
+                role=_FOUR_AGENT_LLM_ROLE,
+                system="Output single-line JSON only. No markdown. No extra text.",
+                max_tokens=1024,
+                temperature=0.1,
             )
-            data = json.loads(response.content)
+            data = parse_llm_json(response.content)
             return AdvocateReport(
                 reasons=list(data.get("reasons") or []),
                 standards=list(data.get("standards") or []),
@@ -563,30 +557,21 @@ class CriticReviewer:
             return self._mock_review(result, ctx)
         domain = ctx.get("domain", "software")
         text = _artifact_text(result, ctx)
-        prompt = f"""당신은 악마의 변호인입니다. 결과의 문제점을 찾으세요.
-결과: {text}
-도메인: {domain}
-
-다음을 분석하세요:
-1. 문제점 또는 위험 요소 3가지 이상
-2. 위반 가능한 규칙/표준
-3. 위험도 점수 (0.0~1.0, 높을수록 위험)
-
-JSON 응답:
-{{
-  "issues": ["..."],
-  "violated_standards": ["..."],
-  "risk_score": 0.0,
-  "recommendation": "REJECT",
-  "summary": "..."
-}}"""
+        prompt = (
+            f"Domain={domain}. Artifact={text[:400]}. "
+            'Reply with ONE line JSON only: '
+            '{"issues":["i1","i2"],"violated_standards":[],"risk_score":0.3,'
+            '"recommendation":"REVISE","summary":"ok"}'
+        )
         try:
             response = await self.llm.chat(
                 prompt,
-                role=ModelRole.HEAVY,
-                system="당신은 결과물의 위험과 문제를 발굴하는 비판적 전문가입니다.",
+                role=_FOUR_AGENT_LLM_ROLE,
+                system="Output single-line JSON only. No markdown. No extra text.",
+                max_tokens=1024,
+                temperature=0.1,
             )
-            data = json.loads(response.content)
+            data = parse_llm_json(response.content)
             return CriticReport(
                 issues=list(data.get("issues") or []),
                 violated_standards=list(data.get("violated_standards") or []),

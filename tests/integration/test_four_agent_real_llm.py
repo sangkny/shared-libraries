@@ -30,7 +30,8 @@ async def test_advocate_real_llm(monkeypatch):
     report = await adv.review(ARTIFACT, {"domain": "software"})
     assert report.confidence >= 0.0
     assert report.reasons
-    print(f"\n  advocate confidence={report.confidence}")
+    assert report.summary != "mock advocate", "LLM did not return real advocate JSON"
+    print(f"\n  advocate confidence={report.confidence} summary={report.summary[:60]}")
 
 
 @pytest.mark.asyncio
@@ -41,7 +42,8 @@ async def test_critic_real_llm(monkeypatch):
     report = await critic.review(ARTIFACT, {"domain": "software"})
     assert report.risk_score >= 0.0
     assert report.issues
-    print(f"\n  critic risk={report.risk_score}")
+    assert report.summary != "mock critic", "LLM did not return real critic JSON"
+    print(f"\n  critic risk={report.risk_score} summary={report.summary[:60]}")
 
 
 @pytest.mark.asyncio
@@ -54,5 +56,6 @@ async def test_full_pipeline_real_llm(monkeypatch):
     assert out.mode == "four_agent"
     assert out.decision.decision in ("APPROVE", "REVISE", "REJECT")
     assert out.audit_trail.get("mode") == "four_agent"
+    assert (out.audit_trail.get("advocate_summary") or "") != "mock advocate"
     print(f"\n  decision={out.decision.decision} score={out.decision.final_score}")
     print(f"  audit={json.dumps(out.audit_trail, ensure_ascii=False)[:300]}")

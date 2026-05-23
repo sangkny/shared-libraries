@@ -27,29 +27,55 @@ import pytest
 
 LOGGER = logging.getLogger("conftest.shared_libs")
 
-_LM_STUDIO_DEFAULT_URL = "http://host.docker.internal:8000/v1"
+_LM_STUDIO_DEFAULT_URL = "http://127.0.0.1:8000/v1"
 
 
 def _lm_studio_base_url() -> str:
-    return os.getenv("LM_STUDIO_BASE_URL", _LM_STUDIO_DEFAULT_URL).rstrip("/")
+    return os.getenv(
+        "LM_STUDIO_BASE_URL",
+        os.getenv("LOCAL_BASE_URL", _LM_STUDIO_DEFAULT_URL),
+    ).rstrip("/")
+
+
+def _ping_lm_studio_httpx(base: str, timeout: float = 2.0) -> bool:
+    try:
+        import httpx
+
+        r = httpx.get(f"{base}/models", timeout=timeout)
+        return r.status_code == 200 and '"data"' in (r.text or "")
+    except Exception as exc:
+        LOGGER.debug("conftest: httpx ping fail (%s): %s", base, exc)
+        return False
+
+
+def _ping_lm_studio_windows_curl(base: str) -> bool:
+    """WSL: Windows localhost LM Studio (127.0.0.1:8000) — curl.exe 경유."""
+    import subprocess
+    from pathlib import Path
+
+    curl = Path("/mnt/c/Windows/System32/curl.exe")
+    if not curl.is_file():
+        return False
+    url = f"{base.replace('host.docker.internal', '127.0.0.1')}/models"
+    try:
+        out = subprocess.run(
+            [str(curl), "-s", "-m", "5", url],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return out.returncode == 0 and '"data"' in (out.stdout or "")
+    except Exception as exc:
+        LOGGER.debug("conftest: windows curl ping fail: %s", exc)
+        return False
 
 
 def _ping_lm_studio(timeout: float = 2.0) -> bool:
-    """GET ``{LM_STUDIO_BASE_URL}/models`` 가 200 이면 True.
-
-    의존성: ``httpx``. 미설치/타임아웃/연결실패 → False.
-    """
-    try:
-        import httpx
-    except ImportError:
-        LOGGER.debug("conftest: httpx 미설치 — LM Studio ping skip")
-        return False
-    try:
-        r = httpx.get(f"{_lm_studio_base_url()}/models", timeout=timeout)
-        return r.status_code == 200
-    except Exception as exc:
-        LOGGER.debug("conftest: LM Studio ping fail (%s)", exc)
-        return False
+    """GET ``{base}/models`` 200 — httpx 후 WSL Windows curl fallback."""
+    base = _lm_studio_base_url()
+    if _ping_lm_studio_httpx(base, timeout):
+        return True
+    return _ping_lm_studio_windows_curl(base)
 
 
 def is_lm_studio_ready() -> bool:

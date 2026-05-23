@@ -1,7 +1,7 @@
 # shared-libraries/llm/providers/local.py
 """
 Local Provider — LM Studio (OpenAI 호환 API)
-개발 환경: http://host.docker.internal:8000/v1
+개발 환경: http://127.0.0.1:8000/v1 (호스트) / Docker: http://host.docker.internal:8000/v1
 """
 import os, time
 from openai import AsyncOpenAI
@@ -18,7 +18,10 @@ class LocalProvider(BaseProvider):
 
     def __init__(self):
         self._client = AsyncOpenAI(
-            base_url=os.getenv("LOCAL_BASE_URL", "http://host.docker.internal:8000/v1"),
+            base_url=os.getenv(
+                "LOCAL_BASE_URL",
+                "http://127.0.0.1:8000/v1",
+            ),
             api_key=os.getenv("LOCAL_API_KEY", "lm-studio"),  # LM Studio는 아무 값이나 OK
         )
 
