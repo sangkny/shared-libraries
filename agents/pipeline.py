@@ -18,7 +18,12 @@ from .fixer import FixerAgent
 from .four_agent_types import DecisionResult, PipelineResult
 from .generator import GeneratorAgent
 from .planner import PlannerAgent
-from .reviewer import AdvocateReviewer, CriticReviewer, ReviewerAgent
+from .reviewer import (
+    AdvocateReviewer,
+    CriticReviewer,
+    ReviewerAgent,
+    _medical_mock_legacy_decision,
+)
 
 log = logging.getLogger(__name__)
 
@@ -144,6 +149,7 @@ class AgentPipeline:
             audit["ontology_passed"] = valid.passed
             audit["review_passed"] = bool(review and review.passed)
 
+        self._record_decision_metrics(legacy_decision, domain, "legacy", None)
         return PipelineResult(
             result=result,
             decision=legacy_decision,
@@ -161,12 +167,22 @@ class AgentPipeline:
         action = "auto_promote"
         score = 0.85
 
-        if dom == "medical" and any(k in text for k in ("pii", "주민")):
-            decision, action, score = "REJECT", "block", 0.2
+        if dom == "medical":
+            med_dec = _medical_mock_legacy_decision(result)
+            if med_dec:
+                score_map = {"APPROVE": 0.9, "REVISE": 0.65, "REJECT": 0.2}
+                action_map = {
+                    "APPROVE": "auto_promote",
+                    "REVISE": "request_revision",
+                    "REJECT": "block",
+                }
+                decision = med_dec
+                action = action_map[med_dec]
+                score = score_map[med_dec]
+            elif any(k in text for k in ("pii", "주민")):
+                decision, action, score = "REJECT", "block", 0.2
         elif dom in ("iot", "iot_device") and "iop" in text and "25" in text:
             decision, action, score = "REJECT", "block", 0.25
-        elif dom == "medical" and ("경계값" in text or "0.65" in text):
-            decision, action, score = "APPROVE", "auto_promote", 0.72
         elif "python" in text or "올바른" in text:
             decision, action, score = "APPROVE", "auto_promote", 0.9
         elif "결재" in text:
@@ -186,12 +202,35 @@ class AgentPipeline:
             "request_id": request_id,
             "mock": True,
         }
+        self._record_decision_metrics(dr, domain, "legacy", None)
         return PipelineResult(
             result=result,
             decision=dr,
             mode="legacy",
             audit_trail=audit,
         )
+
+    @staticmethod
+    def _record_decision_metrics(
+        decision: DecisionResult,
+        domain: str,
+        mode: str,
+        ontology_issues: list[str] | None,
+    ) -> None:
+        try:
+            from observability.decision_metrics import record_decision
+
+            record_decision(
+                decision=decision.decision,
+                domain=domain,
+                mode=mode,
+                advocate=float(decision.advocate_score or 0),
+                critic=float(decision.critic_score or 0),
+                final=float(decision.final_score or 0),
+                ontology_issues=ontology_issues,
+            )
+        except Exception as exc:
+            log.debug("decision_metrics skip: %s", exc)
 
     async def _validate_legacy_artifact(
         self, result: Any, domain: str
@@ -239,6 +278,12 @@ class AgentPipeline:
         decision = self.gate.decide(mediation, domain)
         audit = decision.audit_trail or {}
         audit.setdefault("request_id", request_id)
+        self._record_decision_metrics(
+            decision,
+            domain,
+            "four_agent",
+            list(mediation.ontology_issues or []),
+        )
         return PipelineResult(
             result=result,
             decision=decision,

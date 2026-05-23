@@ -476,6 +476,53 @@ def _artifact_text(result: Any, context: Any) -> str:
     return str(result or context or "")[:2000]
 
 
+def _medical_mock_profile(result: Any) -> dict[str, float] | None:
+    """의료 mock Advocate/Critic/Legacy — 구조화 DR·문자열 시나리오 공통."""
+    if isinstance(result, dict) and "confidence" in result:
+        conf = float(result.get("confidence", 0.5))
+        dr = int(result.get("dr_grade", 0))
+        if dr >= 4:
+            return {"advocate": 0.55, "critic_risk": 0.78}
+        if dr >= 3 or conf < 0.50:
+            return {"advocate": 0.42, "critic_risk": 0.88}
+        if dr == 2 or (0.60 <= conf < 0.70):
+            return {"advocate": 0.65, "critic_risk": 0.36}
+        if conf >= 0.70 and dr <= 1:
+            return {"advocate": 0.92, "critic_risk": 0.12}
+        return {"advocate": 0.78, "critic_risk": 0.22}
+    text = str(result or "").lower()
+    if any(k in text for k in ("pii", "주민", "ssn")):
+        return {"advocate": 0.35, "critic_risk": 0.92}
+    if "경계값" in text or "0.65" in text:
+        return {"advocate": 0.65, "critic_risk": 0.35}
+    if "hba1c" in text or ("혈당" in text and "7.2" in text):
+        return {"advocate": 0.90, "critic_risk": 0.15}
+    return None
+
+
+def _medical_mock_legacy_decision(result: Any) -> str | None:
+    """Legacy mock 결정 — medical artifact 전용."""
+    prof = _medical_mock_profile(result)
+    if prof is None:
+        return None
+    if isinstance(result, dict) and "confidence" in result:
+        conf = float(result.get("confidence", 0.5))
+        dr = int(result.get("dr_grade", 0))
+        if dr >= 3 or conf < 0.50:
+            return "REJECT"
+        if dr == 2 or (0.60 <= conf < 0.70):
+            return "REVISE"
+        return "APPROVE"
+    text = str(result or "").lower()
+    if any(k in text for k in ("pii", "주민")):
+        return "REJECT"
+    if "경계값" in text or "0.65" in text:
+        return "REVISE"
+    if "hba1c" in text or ("혈당" in text and "7.2" in text):
+        return "APPROVE"
+    return None
+
+
 class AdvocateReviewer:
     """찬성 관점 에이전트 — 결과물이 왜 올바른지 근거 생성"""
 
@@ -528,17 +575,18 @@ class AdvocateReviewer:
         domain = (ctx.get("domain") or "software").lower()
         confidence = 0.72
         reasons = ["구조가 명확함", "도메인 규칙 준수 가능성 높음"]
+        if domain == "medical":
+            prof = _medical_mock_profile(result)
+            if prof:
+                confidence = prof["advocate"]
+                reasons.append("의료 mock 프로파일")
         if "python" in text or "def " in text:
             confidence = 0.88
             reasons.append("코드 스타일 적합")
         if "결재" in text or "approval" in text:
             confidence = 0.82
-        if domain == "medical" and ("pii" in text or "주민" in text):
-            confidence = 0.35
         if domain in ("iot", "iot_device") and "iop" in text:
             confidence = 0.45
-        if "경계값" in text or "0.65" in text:
-            confidence = 0.65
         if domain == "software" and isinstance(result, dict) and result.get("function_name"):
             confidence = max(confidence, 0.88)
             reasons.append("software ontology 필드 충족")
@@ -604,17 +652,20 @@ class CriticReviewer:
         risk = 0.25
         issues = ["미검증 엣지 케이스"]
         violated: list[str] = []
-        if domain == "medical" and ("pii" in text or "주민" in text):
-            risk = 0.92
-            issues.extend(["PII 노출", "HIPAA 위반 가능"])
-            violated.append("HIPAA")
+        if domain == "medical":
+            prof = _medical_mock_profile(result)
+            if prof:
+                risk = prof["critic_risk"]
+                if risk >= 0.85:
+                    issues.extend(["중증/저신뢰 — 임상 검토 필수"])
+                elif risk >= 0.30:
+                    issues.append("신뢰도·DR 등급 경계 — 의료 검토 권장")
+                else:
+                    issues = ["정기 검진 범위 내"]
         if domain in ("iot", "iot_device") and "iop" in text and "25" in text:
             risk = 0.90
             issues.append("IOP 임계값 초과")
             violated.append("IOP_RANGE")
-        if "경계값" in text or "0.65" in text:
-            risk = 0.35
-            issues.append("신뢰도 경계값 — 의료 검토 필요")
         if domain == "software" and isinstance(result, dict) and result.get("function_name"):
             risk = min(risk, 0.2)
             issues = [i for i in issues if "missing" not in i.lower()]

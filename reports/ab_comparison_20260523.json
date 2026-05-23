@@ -1,46 +1,30 @@
 {
-  "generated_at": "2026-05-23T16:17:00.641901+00:00",
+  "generated_at": "2026-05-23T16:53:10.363457+00:00",
   "test_cases": 10,
   "legacy": {
     "total_tests": 10,
-    "passed": 8,
-    "pass_rate": 0.8,
-    "avg_latency_ms": 0.0,
+    "passed": 9,
+    "pass_rate": 0.9,
+    "avg_latency_ms": 29.2,
     "decisions": {
-      "APPROVE": 7,
-      "REJECT": 3
+      "APPROVE": 6,
+      "REJECT": 3,
+      "REVISE": 1
     }
   },
   "four_agent": {
     "total_tests": 10,
-    "passed": 8,
-    "pass_rate": 0.8,
-    "avg_latency_ms": 170.0,
+    "passed": 9,
+    "pass_rate": 0.9,
+    "avg_latency_ms": 0.3,
     "decisions": {
-      "APPROVE": 5,
+      "APPROVE": 6,
       "REJECT": 3,
-      "REVISE": 2
+      "REVISE": 1
     }
   },
-  "agreement_rate": 0.8,
-  "disagreements": [
-    {
-      "input": "경계값 신뢰도 0.65",
-      "domain": "medical",
-      "expected": "REVISE",
-      "legacy": "APPROVE",
-      "four_agent": "REVISE",
-      "note": "도메인 임계값·듀얼 관점 차이"
-    },
-    {
-      "input": "혈당 HbA1c 7.2 정기 검진",
-      "domain": "medical",
-      "expected": "APPROVE",
-      "legacy": "APPROVE",
-      "four_agent": "REVISE",
-      "note": "도메인 임계값·듀얼 관점 차이"
-    }
-  ],
-  "recommendation": "gradual_rollout",
+  "agreement_rate": 1.0,
+  "disagreements": [],
+  "recommendation": "four_agent",
   "rollback_tag": "before-four-agent-v1.0"
 }

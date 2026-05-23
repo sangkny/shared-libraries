@@ -11,7 +11,11 @@
 | LM Studio 실연동 (Docker) | **4** | 0 | Advocate/Critic FAST · JSON 파싱 |
 | Harness `decision` | 5/5 | 0 | pass_rate 100%, agreement 80% (mock) |
 | MEDI E2E smoke | **PASS** | — | `patient-rollout-3` → four_agent · a/b/c → legacy |
-| A/B 리포트 (10케이스) | — | — | `agreement_rate` 0.80, `gradual_rollout` |
+| A/B 리포트 (10케이스) | — | — | `agreement_rate` **1.00**, `four_agent` |
+| 의료 불일치 | **0건** | — | `_medical_mock_profile` 튜닝 |
+| ROLLOUT | **100%** | — | `AGENT_DECISION_MODE=four_agent` |
+| Partner E2E | PASS | — | `partner_e2e_inline.py` fundus |
+| Grafana | — | — | `decision_metrics` on `/metrics/prometheus` |
 
 ## 운영 적용
 
