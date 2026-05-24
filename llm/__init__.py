@@ -4,8 +4,15 @@ from .providers.local import LocalProvider
 from .providers.openai_provider import OpenAIProvider
 from .providers.anthropic_provider import AnthropicProvider
 from .providers.google_provider import GoogleProvider
+from .providers.azure_provider import AzureProvider
 
 __all__ = [
-    "LLMClient", "LLMProvider", "ModelRole",
-    "LocalProvider", "OpenAIProvider", "AnthropicProvider", "GoogleProvider",
+    "LLMClient",
+    "LLMProvider",
+    "ModelRole",
+    "LocalProvider",
+    "OpenAIProvider",
+    "AnthropicProvider",
+    "GoogleProvider",
+    "AzureProvider",
 ]

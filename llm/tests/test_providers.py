@@ -5,8 +5,8 @@ LLM Provider 통합 테스트
 """
 import pytest, asyncio, os
 from unittest.mock import AsyncMock, patch, MagicMock
-from ..client import LLMClient, quick_chat
-from ..base import ModelRole, LLMProvider, LLMResponse, EmbedResponse, Message, LLMRequest
+from llm.client import LLMClient, quick_chat
+from llm.base import ModelRole, LLMProvider, LLMResponse, EmbedResponse, Message, LLMRequest
 
 
 # ── Fixtures ──────────────────────────────────────────────
@@ -46,7 +46,7 @@ class TestLocalProvider:
                     usage=MagicMock(prompt_tokens=5, completion_tokens=10),
                 )
             )
-            from ..providers.local import LocalProvider
+            from llm.providers.local import LocalProvider
             provider = LocalProvider()
             provider._client = mock_client
 
@@ -69,7 +69,7 @@ class TestLocalProvider:
                     data=[MagicMock(embedding=[0.1] * 768)]
                 )
             )
-            from ..providers.local import LocalProvider
+            from llm.providers.local import LocalProvider
             provider = LocalProvider()
             provider._client = mock_client
 
@@ -130,7 +130,7 @@ class TestLLMClient:
     @pytest.mark.asyncio
     async def test_embed_fallback_for_anthropic(self):
         """Anthropic Provider → 임베딩 LOCAL fallback"""
-        from ..providers.anthropic_provider import AnthropicProvider
+        from llm.providers.anthropic_provider import AnthropicProvider
         os.environ["ANTHROPIC_API_KEY"] = "test-key"
 
         with patch("anthropic.AsyncAnthropic"):
@@ -141,7 +141,7 @@ class TestLLMClient:
 
     def test_model_role_fallback(self):
         """VISION role 미지원 시 HEAVY로 fallback"""
-        from ..providers.local import LocalProvider
+        from llm.providers.local import LocalProvider
         provider = LocalProvider()
         # VISION이 설정되어 있으면 그것을 반환
         model = provider.get_model(ModelRole.VISION)
@@ -154,7 +154,7 @@ class TestProviderModels:
     """각 Provider의 ModelRole 매핑 확인"""
 
     def test_local_model_map(self):
-        from ..providers.local import LocalProvider
+        from llm.providers.local import LocalProvider
         p = LocalProvider()
         assert ModelRole.FAST   in p.model_map
         assert ModelRole.HEAVY  in p.model_map
@@ -164,7 +164,7 @@ class TestProviderModels:
     def test_google_model_map(self):
         os.environ["GOOGLE_API_KEY"] = "test-key"
         with patch("google.generativeai.configure"):
-            from ..providers.google_provider import GoogleProvider
+            from llm.providers.google_provider import GoogleProvider
             p = GoogleProvider()
             assert "gemini" in p.model_map[ModelRole.FAST]
             assert "gemini" in p.model_map[ModelRole.HEAVY]
@@ -172,7 +172,7 @@ class TestProviderModels:
 
     def test_openai_model_map(self):
         os.environ["OPENAI_API_KEY"] = "test-key"
-        from ..providers.openai_provider import OpenAIProvider
+        from llm.providers.openai_provider import OpenAIProvider
         p = OpenAIProvider()
         assert "gpt" in p.model_map[ModelRole.FAST]
         assert "gpt" in p.model_map[ModelRole.HEAVY]
@@ -181,7 +181,7 @@ class TestProviderModels:
     def test_anthropic_model_map(self):
         os.environ["ANTHROPIC_API_KEY"] = "test-key"
         with patch("anthropic.AsyncAnthropic"):
-            from ..providers.anthropic_provider import AnthropicProvider
+            from llm.providers.anthropic_provider import AnthropicProvider
             p = AnthropicProvider()
             assert "claude" in p.model_map[ModelRole.FAST]
             assert "claude" in p.model_map[ModelRole.HEAVY]
