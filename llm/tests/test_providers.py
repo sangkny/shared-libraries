@@ -85,7 +85,7 @@ class TestLLMClient:
     async def test_provider_selection_local(self):
         """LOCAL Provider 선택"""
         os.environ["LLM_PROVIDER"] = "local"
-        with patch("shared_libraries.llm.providers.local.LocalProvider.chat",
+        with patch("llm.providers.local.LocalProvider.chat",
                    new_callable=AsyncMock, return_value=make_mock_response()):
             client = LLMClient(provider="local")
             assert client.current_provider == LLMProvider.LOCAL
@@ -101,8 +101,8 @@ class TestLLMClient:
                 raise ConnectionError("API 연결 실패")
             return make_mock_response(content="fallback 응답", provider=LLMProvider.LOCAL)
 
-        with patch("shared_libraries.llm.providers.openai_provider.OpenAIProvider") as MockOAI, \
-             patch("shared_libraries.llm.providers.local.LocalProvider") as MockLocal:
+        with patch("llm.providers.openai_provider.OpenAIProvider") as MockOAI, \
+             patch("llm.providers.local.LocalProvider") as MockLocal:
 
             mock_openai = MagicMock()
             mock_openai.chat = AsyncMock(side_effect=ConnectionError("API 실패"))
@@ -125,7 +125,8 @@ class TestLLMClient:
             client._fallback_enabled = True
 
             res = await client.chat("테스트")
-            assert "fallback" in res.metadata.get("fallback_reason", "fallback 응답")
+            assert res.content == "fallback 응답"
+            assert res.metadata.get("fallback_reason")
 
     @pytest.mark.asyncio
     async def test_embed_fallback_for_anthropic(self):
@@ -163,7 +164,7 @@ class TestProviderModels:
 
     def test_google_model_map(self):
         os.environ["GOOGLE_API_KEY"] = "test-key"
-        with patch("google.generativeai.configure"):
+        with patch("llm.providers.google_provider.genai.Client"):
             from llm.providers.google_provider import GoogleProvider
             p = GoogleProvider()
             assert "gemini" in p.model_map[ModelRole.FAST]
