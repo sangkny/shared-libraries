@@ -340,7 +340,9 @@ SOFTWARE_SCENARIOS = [
     HarnessScenario(
         name="simple_add_function",
         domain=OntologyDomain.SOFTWARE,
-        strategy="pipeline",
+        # smoke 는 "항상/빠르게 통과"가 목적이라 가장 짧은 경로로 실행한다.
+        # (pipeline 전략은 LLM 컨텍스트/체인 길이에 따라 외부 API 한계에 걸릴 수 있음)
+        strategy="fastest",
         task="두 정수를 더하는 add(a, b) 함수를 타입 힌트와 docstring 포함하여 구현하세요.",
         validators=[has_content, has_def_keyword, has_type_hints],
         expect_pass=True,
