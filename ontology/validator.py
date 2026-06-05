@@ -315,6 +315,40 @@ class SemanticValidator(BaseSubValidator):
                     field="referral_urgency", value=referral,
                 ))
 
+        cdr_raw = data.get("cup_disc_ratio")
+        cdr_val = -1.0
+        if isinstance(cdr_raw, dict):
+            try:
+                cdr_val = float(cdr_raw.get("value", -1))
+            except (TypeError, ValueError):
+                cdr_val = -1.0
+        elif cdr_raw is not None:
+            try:
+                cdr_val = float(cdr_raw)
+            except (TypeError, ValueError):
+                cdr_val = -1.0
+
+        if cdr_val > 0.75 and risk != "HIGH":
+            result.add(self._error(
+                "GLAU-SEM-005",
+                f"CDR={cdr_val:.2f}>0.75 인데 risk_level이 HIGH가 아닙니다: '{risk}'",
+                field="risk_level", value=risk,
+                suggestion="CDR>0.75 → risk_level=HIGH",
+            ))
+        elif 0.65 <= cdr_val <= 0.75 and risk not in ("MODERATE", "HIGH"):
+            result.add(self._error(
+                "GLAU-SEM-005",
+                f"CDR={cdr_val:.2f} (0.65~0.75) 인데 risk_level이 MODERATE/HIGH가 아닙니다: '{risk}'",
+                field="risk_level", value=risk,
+                suggestion="CDR 0.65~0.75 → risk_level MODERATE 이상",
+            ))
+        elif 0 <= cdr_val < 0.65 and risk == "HIGH":
+            result.add(self._warning(
+                "GLAU-SEM-005",
+                f"CDR={cdr_val:.2f}<0.65 인데 risk_level=HIGH",
+                field="risk_level", value=risk,
+            ))
+
     async def _validate_software_semantic(self, data: dict, rules: dict,
                                            result: ValidationResult):
         """소프트웨어 코드 의미 검증"""
