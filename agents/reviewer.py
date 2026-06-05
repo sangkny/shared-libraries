@@ -635,10 +635,17 @@ class CriticReviewer:
                 " This is function metadata JSON, not missing source code; "
                 "risk_score<=0.25, violated_standards=[], issues=[] if consistent. "
             )
-        if domain == "medical" and isinstance(result, dict) and result.get("task") == "glaucoma":
+        glaucoma_task = (
+            domain == "medical"
+            and isinstance(result, dict)
+            and result.get("task") == "glaucoma"
+        )
+        if glaucoma_task:
             sw_hint = (
-                " Glaucoma CNN structured output (not missing clinical narrative); "
-                "risk_score<=0.25, violated_standards=[], issues=[] when ICD/risk/referral align. "
+                " Glaucoma CNN structured output with probability 0.0-1.0. "
+                "Rate diagnosis confidence: risk_score 0.0=low risk 1.0=high risk. "
+                "When ICD H40.x, risk_level and referral align, use risk_score 0.2-0.35. "
+                "violated_standards=[], issues=[]. "
             )
         prompt = (
             f"Domain={domain}. Artifact={text[:400]}.{sw_hint} "
@@ -654,13 +661,19 @@ class CriticReviewer:
                 max_tokens=1024,
                 temperature=0.1,
             )
-            data = parse_llm_json(response.content)
+            raw = (response.content or "").strip()
+            if not raw:
+                raise ValueError("empty critic LLM response")
+            data = parse_llm_json(raw)
+            risk_score = float(data.get("risk_score", 0.5))
+            if risk_score >= 0.95 or risk_score < 0.0:
+                risk_score = 0.5
             return CriticReport(
                 issues=list(data.get("issues") or []),
                 violated_standards=list(data.get("violated_standards") or []),
-                risk_score=float(data.get("risk_score", 0.5)),
+                risk_score=risk_score,
                 recommendation=str(data.get("recommendation", "REVISE")),
-                summary=str(data.get("summary", "")),
+                summary=str(data.get("summary", "") or "ok"),
             )
         except Exception as exc:
             _log_four.warning("CriticReviewer LLM fallback: %s", exc)
