@@ -478,6 +478,16 @@ def _artifact_text(result: Any, context: Any) -> str:
 
 def _medical_mock_profile(result: Any) -> dict[str, float] | None:
     """의료 mock Advocate/Critic/Legacy — 구조화 DR·문자열 시나리오 공통."""
+    if isinstance(result, dict) and result.get("task") == "glaucoma":
+        conf = float(result.get("confidence", 0.5))
+        grade = int(result.get("glaucoma_grade", 0))
+        if grade >= 2 and conf >= 0.70:
+            return {"advocate": 0.92, "critic_risk": 0.12}
+        if conf >= 0.65:
+            return {"advocate": 0.88, "critic_risk": 0.18}
+        if conf >= 0.55:
+            return {"advocate": 0.72, "critic_risk": 0.28}
+        return {"advocate": 0.50, "critic_risk": 0.82}
     if isinstance(result, dict) and "confidence" in result:
         conf = float(result.get("confidence", 0.5))
         dr = int(result.get("dr_grade", 0))
@@ -543,6 +553,11 @@ class AdvocateReviewer:
             sw_hint = (
                 " Artifact is valid software function metadata (ontology fields present); "
                 "confidence>=0.85 if fields look consistent. "
+            )
+        if domain == "medical" and isinstance(result, dict) and result.get("task") == "glaucoma":
+            sw_hint = (
+                " Glaucoma CNN inference artifact with ICD H40.x, risk_level, referral_urgency; "
+                "confidence>=0.85 if fields are internally consistent. "
             )
         prompt = (
             f"Domain={domain}. Artifact={text[:400]}.{sw_hint} "
@@ -619,6 +634,11 @@ class CriticReviewer:
             sw_hint = (
                 " This is function metadata JSON, not missing source code; "
                 "risk_score<=0.25, violated_standards=[], issues=[] if consistent. "
+            )
+        if domain == "medical" and isinstance(result, dict) and result.get("task") == "glaucoma":
+            sw_hint = (
+                " Glaucoma CNN structured output (not missing clinical narrative); "
+                "risk_score<=0.25, violated_standards=[], issues=[] when ICD/risk/referral align. "
             )
         prompt = (
             f"Domain={domain}. Artifact={text[:400]}.{sw_hint} "

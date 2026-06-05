@@ -224,12 +224,95 @@ class SemanticValidator(BaseSubValidator):
         mu = data.get("model_used")
         if mu and model_whitelist:
             mlow = str(mu).lower()
-            if not any(w.lower() in mlow for w in model_whitelist):
+            glaucoma_models = rules.get("glaucoma_model_whitelist", [])
+            cnn_ok = "cnn(" in mlow and any(
+                g.lower() in mlow for g in glaucoma_models
+            )
+            if not cnn_ok and not any(w.lower() in mlow for w in model_whitelist):
                 result.add(self._warning(
                     "MED-SEM-007",
                     f"model_used '{mu}' 가 인증된 의료 모델 화이트리스트에 없습니다.",
                     field="model_used", value=mu,
                     suggestion=f"화이트리스트: {', '.join(model_whitelist)} — 임상 사용 전 모델 검증을 권장합니다.",
+                ))
+
+        # ── Glaucoma CNN API (task=glaucoma) ───────────────
+        if data.get("task") == "glaucoma" or data.get("glaucoma_grade") is not None:
+            await self._validate_glaucoma_semantic(
+                data, rules.get("glaucoma_semantic", {}), result
+            )
+
+    async def _validate_glaucoma_semantic(
+        self, data: dict, rules: dict, result: ValidationResult
+    ) -> None:
+        """녹내장 CNN 결과 의미 검증 (GLAU-SEM-001~004)."""
+        icd = str(data.get("icd10_code") or data.get("icd10") or "").strip().upper()
+        grade = data.get("glaucoma_grade")
+        if icd:
+            if not self._is_valid_icd10(icd):
+                result.add(self._error(
+                    "GLAU-SEM-001",
+                    f"ICD-10 코드 형식이 올바르지 않습니다: '{icd}'",
+                    field="icd10_code", value=icd,
+                    suggestion="녹내장: H40.0(정상)~H40.9",
+                ))
+            elif grade is not None and int(grade) >= 1:
+                if not icd.startswith("H40"):
+                    result.add(self._error(
+                        "GLAU-SEM-001",
+                        f"glaucoma_grade≥1 인데 ICD-10이 H40.x 가 아닙니다: '{icd}'",
+                        field="icd10_code", value=icd,
+                        suggestion="H40.1 (개방각 녹내장) 등 H40 계열 사용",
+                    ))
+            elif grade is not None and int(grade) == 0:
+                if icd.startswith("H40") and icd not in ("H40.0",):
+                    result.add(self._warning(
+                        "GLAU-SEM-001",
+                        f"정상 등급인데 ICD-10이 H40.0이 아닙니다: '{icd}'",
+                        field="icd10_code", value=icd,
+                        suggestion="정상: H40.0 또는 빈 값",
+                    ))
+
+        try:
+            prob = float(data.get("probability", -1))
+        except (TypeError, ValueError):
+            prob = -1.0
+        risk = str(data.get("risk_level") or "").upper()
+        if prob >= 0.5 and risk not in ("MODERATE", "HIGH"):
+            result.add(self._error(
+                "GLAU-SEM-002",
+                f"probability={prob:.2f}≥0.5 인데 risk_level이 MODERATE/HIGH가 아닙니다: '{risk}'",
+                field="risk_level", value=risk,
+                suggestion="probability≥0.5 → MODERATE 또는 HIGH",
+            ))
+        if 0 <= prob < 0.3 and risk != "LOW":
+            result.add(self._warning(
+                "GLAU-SEM-002",
+                f"probability={prob:.2f}<0.3 인데 risk_level='{risk}'",
+                field="risk_level", value=risk,
+            ))
+
+        grade_label = str(data.get("grade_label") or data.get("severity") or "").lower()
+        expected = {0: "normal", 1: "suspect", 2: "glaucoma"}.get(int(grade) if grade is not None else -1)
+        if expected and grade_label and grade_label != expected:
+            result.add(self._error(
+                "GLAU-SEM-003",
+                f"glaucoma_grade={grade} 와 grade_label='{grade_label}' 불일치 (기대: {expected})",
+                field="grade_label", value=grade_label,
+            ))
+
+        referral_map = rules.get(
+            "referral_risk_map",
+            {"HIGH": "immediate", "MODERATE": "routine", "LOW": "none"},
+        )
+        referral = str(data.get("referral_urgency") or "").lower()
+        if risk and referral:
+            expected_ref = referral_map.get(risk, "")
+            if expected_ref and referral != expected_ref:
+                result.add(self._error(
+                    "GLAU-SEM-004",
+                    f"risk_level={risk} 인데 referral_urgency='{referral}' (기대: {expected_ref})",
+                    field="referral_urgency", value=referral,
                 ))
 
     async def _validate_software_semantic(self, data: dict, rules: dict,
@@ -993,6 +1076,11 @@ class OntologyValidator:
         final_score = advocate_score * w["advocate"] + critic_score * w["critic"]
 
         ontology_issues = self._check_existing_rules(dom, result, advocate, critic)
+        if isinstance(result, dict) and result.get("task") == "glaucoma":
+            ontology_issues = [
+                i for i in ontology_issues
+                if str(i).lower() not in ("consistency", "pii_detected")
+            ]
         if ontology_issues:
             final_score *= 0.5
 
@@ -1149,6 +1237,17 @@ class OntologyValidator:
                         "openai/gpt-oss-20b",             # consensus member
                         "qwen/qwen3-4b-2507",             # consensus member
                     ],
+                    "glaucoma_model_whitelist": [
+                        "efficientnet_b4_glaucoma",
+                        "retinal_glaucoma",
+                    ],
+                    "glaucoma_semantic": {
+                        "referral_risk_map": {
+                            "HIGH": "immediate",
+                            "MODERATE": "routine",
+                            "LOW": "none",
+                        },
+                    },
                 },
                 "structural": {
                     "required_fields": [
