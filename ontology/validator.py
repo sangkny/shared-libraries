@@ -225,8 +225,10 @@ class SemanticValidator(BaseSubValidator):
         if mu and model_whitelist:
             mlow = str(mu).lower()
             glaucoma_models = rules.get("glaucoma_model_whitelist", [])
-            cnn_ok = "cnn(" in mlow and any(
-                g.lower() in mlow for g in glaucoma_models
+            amd_models = rules.get("amd_model_whitelist", [])
+            cnn_ok = "cnn(" in mlow and (
+                any(g.lower() in mlow for g in glaucoma_models)
+                or any(a.lower() in mlow for a in amd_models)
             )
             if not cnn_ok and not any(w.lower() in mlow for w in model_whitelist):
                 result.add(self._warning(
@@ -240,6 +242,12 @@ class SemanticValidator(BaseSubValidator):
         if data.get("task") == "glaucoma" or data.get("glaucoma_grade") is not None:
             await self._validate_glaucoma_semantic(
                 data, rules.get("glaucoma_semantic", {}), result
+            )
+
+        # ── AMD CNN API (task=amd) ─────────────────────────
+        if data.get("task") == "amd" or data.get("amd_grade") is not None:
+            await self._validate_amd_semantic(
+                data, rules.get("amd_semantic", {}), result
             )
 
     async def _validate_glaucoma_semantic(
@@ -348,6 +356,103 @@ class SemanticValidator(BaseSubValidator):
                 f"CDR={cdr_val:.2f}<0.65 인데 risk_level=HIGH",
                 field="risk_level", value=risk,
             ))
+
+    async def _validate_amd_semantic(
+        self, data: dict, rules: dict, result: ValidationResult
+    ) -> None:
+        """AMD CNN 결과 의미 검증 (AMD-SEM-001~005)."""
+        icd = str(data.get("icd10_code") or data.get("icd10") or "").strip().upper()
+        grade = data.get("amd_grade")
+        if icd:
+            if not self._is_valid_icd10(icd):
+                result.add(self._error(
+                    "AMD-SEM-001",
+                    f"ICD-10 코드 형식이 올바르지 않습니다: '{icd}'",
+                    field="icd10_code", value=icd,
+                    suggestion="AMD: H35.30(초기)~H35.32(진행성)",
+                ))
+            elif grade is not None and int(grade) >= 1:
+                if not icd.startswith("H35.3"):
+                    result.add(self._error(
+                        "AMD-SEM-001",
+                        f"amd_grade≥1 인데 ICD-10이 H35.3x 가 아닙니다: '{icd}'",
+                        field="icd10_code", value=icd,
+                        suggestion="H35.30 / H35.31 / H35.32",
+                    ))
+
+        try:
+            prob = float(data.get("probability", -1))
+        except (TypeError, ValueError):
+            prob = -1.0
+        risk = str(data.get("risk_level") or "").upper()
+        if prob >= 0:
+            if prob >= 0.7 and risk != "HIGH":
+                result.add(self._error(
+                    "AMD-SEM-002",
+                    f"probability={prob:.2f}≥0.7 인데 risk_level이 HIGH가 아닙니다: '{risk}'",
+                    field="risk_level", value=risk,
+                    suggestion="probability≥0.7 → HIGH",
+                ))
+            elif 0.3 <= prob < 0.7 and risk != "MODERATE":
+                result.add(self._error(
+                    "AMD-SEM-002",
+                    f"probability={prob:.2f} (0.3~0.7) 인데 risk_level='{risk}'",
+                    field="risk_level", value=risk,
+                    suggestion="0.3≤probability<0.7 → MODERATE",
+                ))
+            elif prob < 0.3 and risk != "LOW":
+                result.add(self._warning(
+                    "AMD-SEM-002",
+                    f"probability={prob:.2f}<0.3 인데 risk_level='{risk}'",
+                    field="risk_level", value=risk,
+                ))
+
+        drusen = str(data.get("drusen_type") or "").lower()
+        grade_label = str(data.get("grade_label") or data.get("severity") or "").lower()
+        if drusen == "hard" and grade_label in ("normal", "early", ""):
+            result.add(self._error(
+                "AMD-SEM-003",
+                f"drusen_type=hard 인데 severity='{grade_label}' (moderate 이상 기대)",
+                field="drusen_type", value=drusen,
+                suggestion="hard drusen → intermediate/advanced",
+            ))
+
+        referral_map = rules.get(
+            "referral_risk_map",
+            {
+                "HIGH": ("urgent", "immediate"),
+                "MODERATE": ("routine",),
+                "LOW": ("none",),
+            },
+        )
+        referral = str(data.get("referral_urgency") or "").lower()
+        if risk and referral:
+            allowed = referral_map.get(risk, ())
+            if isinstance(allowed, str):
+                allowed = (allowed,)
+            if allowed and referral not in allowed:
+                result.add(self._error(
+                    "AMD-SEM-004",
+                    f"risk_level={risk} 인데 referral_urgency='{referral}'",
+                    field="referral_urgency", value=referral,
+                    suggestion=f"허용: {', '.join(allowed)}",
+                ))
+
+        vision = str(data.get("vision_impact") or "").lower()
+        if prob >= 0 and vision:
+            if prob >= 0.85 and vision not in ("severe", "moderate"):
+                result.add(self._warning(
+                    "AMD-SEM-005",
+                    f"probability={prob:.2f}≥0.85 인데 vision_impact='{vision}'",
+                    field="vision_impact", value=vision,
+                    suggestion="고확률 AMD → moderate/severe",
+                ))
+            elif prob < 0.3 and vision not in ("minimal", "none", ""):
+                result.add(self._warning(
+                    "AMD-SEM-005",
+                    f"probability={prob:.2f}<0.3 인데 vision_impact='{vision}'",
+                    field="vision_impact", value=vision,
+                ))
 
     async def _validate_software_semantic(self, data: dict, rules: dict,
                                            result: ValidationResult):
@@ -1283,11 +1388,22 @@ class OntologyValidator:
                         "efficientnet_b4_glaucoma",
                         "retinal_glaucoma",
                     ],
+                    "amd_model_whitelist": [
+                        "efficientnet_b4_amd",
+                        "retinal_amd",
+                    ],
                     "glaucoma_semantic": {
                         "referral_risk_map": {
                             "HIGH": "immediate",
                             "MODERATE": "routine",
                             "LOW": "none",
+                        },
+                    },
+                    "amd_semantic": {
+                        "referral_risk_map": {
+                            "HIGH": ("urgent", "immediate"),
+                            "MODERATE": ("routine",),
+                            "LOW": ("none",),
                         },
                     },
                 },
