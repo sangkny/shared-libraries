@@ -229,6 +229,7 @@ class SemanticValidator(BaseSubValidator):
             cnn_ok = "cnn(" in mlow and (
                 any(g.lower() in mlow for g in glaucoma_models)
                 or any(a.lower() in mlow for a in amd_models)
+                or any(m.lower() in mlow for m in rules.get("myopia_model_whitelist", []))
             )
             if not cnn_ok and not any(w.lower() in mlow for w in model_whitelist):
                 result.add(self._warning(
@@ -248,6 +249,12 @@ class SemanticValidator(BaseSubValidator):
         if data.get("task") == "amd" or data.get("amd_grade") is not None:
             await self._validate_amd_semantic(
                 data, rules.get("amd_semantic", {}), result
+            )
+
+        # ── Myopia CNN API (task=myopia) ───────────────────
+        if data.get("task") == "myopia" or data.get("myopia_grade") is not None:
+            await self._validate_myopia_semantic(
+                data, rules.get("myopia_semantic", {}), result
             )
 
     async def _validate_glaucoma_semantic(
@@ -451,6 +458,121 @@ class SemanticValidator(BaseSubValidator):
                 result.add(self._warning(
                     "AMD-SEM-005",
                     f"probability={prob:.2f}<0.3 인데 vision_impact='{vision}'",
+                    field="vision_impact", value=vision,
+                ))
+
+    async def _validate_myopia_semantic(
+        self, data: dict, rules: dict, result: ValidationResult
+    ) -> None:
+        """근시 CNN 결과 의미 검증 (MYO-SEM-001~005)."""
+        icd = str(data.get("icd10_code") or data.get("icd10") or "").strip().upper()
+        grade = data.get("myopia_grade")
+        allowed_icd = ("H52.1", "H44.2", "")
+        if icd:
+            if not self._is_valid_icd10(icd):
+                result.add(self._error(
+                    "MYO-SEM-001",
+                    f"ICD-10 코드 형식이 올바르지 않습니다: '{icd}'",
+                    field="icd10_code", value=icd,
+                    suggestion="근시: H52.1 / 병적근시: H44.2",
+                ))
+            elif icd not in allowed_icd:
+                result.add(self._error(
+                    "MYO-SEM-001",
+                    f"근시 ICD-10은 H52.1 또는 H44.2 여야 합니다: '{icd}'",
+                    field="icd10_code", value=icd,
+                ))
+            elif grade is not None and int(grade) >= 3 and icd != "H44.2":
+                result.add(self._error(
+                    "MYO-SEM-001",
+                    f"myopia_grade≥3 인데 ICD-10이 H44.2(병적근시)가 아닙니다: '{icd}'",
+                    field="icd10_code", value=icd,
+                ))
+
+        try:
+            prob = float(data.get("probability", -1))
+        except (TypeError, ValueError):
+            prob = -1.0
+        risk = str(data.get("risk_level") or "").upper()
+        if prob >= 0:
+            if prob >= 0.7 and risk != "HIGH":
+                result.add(self._error(
+                    "MYO-SEM-002",
+                    f"probability={prob:.2f}≥0.7 인데 risk_level이 HIGH가 아닙니다: '{risk}'",
+                    field="risk_level", value=risk,
+                ))
+            elif 0.3 <= prob < 0.7 and risk != "MODERATE":
+                result.add(self._error(
+                    "MYO-SEM-002",
+                    f"probability={prob:.2f} (0.3~0.7) 인데 risk_level='{risk}'",
+                    field="risk_level", value=risk,
+                ))
+            elif prob < 0.3 and risk != "LOW":
+                result.add(self._warning(
+                    "MYO-SEM-002",
+                    f"probability={prob:.2f}<0.3 인데 risk_level='{risk}'",
+                    field="risk_level", value=risk,
+                ))
+
+        axial_raw = data.get("axial_length_estimate")
+        if grade is not None and axial_raw is not None:
+            try:
+                axial = float(axial_raw)
+                grade_int = int(grade)
+                expected_ranges = rules.get(
+                    "axial_grade_ranges",
+                    {
+                        0: (22.0, 24.5),
+                        1: (24.0, 26.0),
+                        2: (26.0, 27.5),
+                        3: (27.5, 32.0),
+                    },
+                )
+                lo, hi = expected_ranges.get(grade_int, (20.0, 35.0))
+                if axial < lo or axial > hi:
+                    result.add(self._error(
+                        "MYO-SEM-003",
+                        f"myopia_grade={grade_int} 인데 axial_length={axial:.1f}mm "
+                        f"(기대 {lo}~{hi}mm)",
+                        field="axial_length_estimate", value=axial,
+                    ))
+            except (TypeError, ValueError):
+                pass
+
+        referral_map = rules.get(
+            "referral_risk_map",
+            {
+                "HIGH": ("urgent", "immediate"),
+                "MODERATE": ("routine",),
+                "LOW": ("none",),
+            },
+        )
+        referral = str(data.get("referral_urgency") or "").lower()
+        if risk and referral:
+            allowed = referral_map.get(risk, ())
+            if isinstance(allowed, str):
+                allowed = (allowed,)
+            if allowed and referral not in allowed:
+                result.add(self._error(
+                    "MYO-SEM-004",
+                    f"risk_level={risk} 인데 referral_urgency='{referral}'",
+                    field="referral_urgency", value=referral,
+                    suggestion=f"허용: {', '.join(allowed)}",
+                ))
+
+        vision = str(data.get("vision_impact") or "").lower()
+        if grade is not None and vision:
+            grade_int = int(grade)
+            if grade_int >= 3 and vision not in ("severe", "moderate"):
+                result.add(self._error(
+                    "MYO-SEM-005",
+                    f"myopia_grade=3 인데 vision_impact='{vision}' (severe 기대)",
+                    field="vision_impact", value=vision,
+                ))
+            elif grade_int == 0 and vision not in ("minimal", "none", ""):
+                result.add(self._warning(
+                    "MYO-SEM-005",
+                    f"myopia_grade=0 인데 vision_impact='{vision}'",
                     field="vision_impact", value=vision,
                 ))
 
@@ -1392,6 +1514,10 @@ class OntologyValidator:
                         "efficientnet_b4_amd",
                         "retinal_amd",
                     ],
+                    "myopia_model_whitelist": [
+                        "efficientnet_b4_myopia",
+                        "retinal_myopia",
+                    ],
                     "glaucoma_semantic": {
                         "referral_risk_map": {
                             "HIGH": "immediate",
@@ -1404,6 +1530,19 @@ class OntologyValidator:
                             "HIGH": ("urgent", "immediate"),
                             "MODERATE": ("routine",),
                             "LOW": ("none",),
+                        },
+                    },
+                    "myopia_semantic": {
+                        "referral_risk_map": {
+                            "HIGH": ("urgent", "immediate"),
+                            "MODERATE": ("routine",),
+                            "LOW": ("none",),
+                        },
+                        "axial_grade_ranges": {
+                            0: (22.0, 24.5),
+                            1: (24.0, 26.0),
+                            2: (26.0, 27.5),
+                            3: (27.5, 32.0),
                         },
                     },
                 },
