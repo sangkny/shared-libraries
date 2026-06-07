@@ -230,6 +230,10 @@ class SemanticValidator(BaseSubValidator):
                 any(g.lower() in mlow for g in glaucoma_models)
                 or any(a.lower() in mlow for a in amd_models)
                 or any(m.lower() in mlow for m in rules.get("myopia_model_whitelist", []))
+                or any(
+                    md.lower() in mlow
+                    for md in rules.get("multidisease_model_whitelist", ["efficientnet_b4_multidisease"])
+                )
             )
             if not cnn_ok and not any(w.lower() in mlow for w in model_whitelist):
                 result.add(self._warning(
@@ -255,6 +259,12 @@ class SemanticValidator(BaseSubValidator):
         if data.get("task") == "myopia" or data.get("myopia_grade") is not None:
             await self._validate_myopia_semantic(
                 data, rules.get("myopia_semantic", {}), result
+            )
+
+        # ── Multidisease screening (task=multidisease) ─────
+        if data.get("task") == "multidisease" or data.get("probabilities"):
+            await self._validate_multidisease_semantic(
+                data, rules.get("multidisease_semantic", {}), result
             )
 
     async def _validate_glaucoma_semantic(
@@ -574,6 +584,76 @@ class SemanticValidator(BaseSubValidator):
                     "MYO-SEM-005",
                     f"myopia_grade=0 인데 vision_impact='{vision}'",
                     field="vision_impact", value=vision,
+                ))
+
+    async def _validate_multidisease_semantic(
+        self, data: dict, rules: dict, result: ValidationResult
+    ) -> None:
+        """다질환 스크리닝 의미 검증 (MULTI-SEM-001~003)."""
+        probs_raw = data.get("probabilities") or {}
+        probs: dict[str, float] = {}
+        for key, val in probs_raw.items():
+            try:
+                probs[str(key).lower()] = float(val)
+            except (TypeError, ValueError):
+                continue
+
+        try:
+            threshold = float(data.get("threshold", rules.get("detection_threshold", 0.3)))
+        except (TypeError, ValueError):
+            threshold = 0.3
+
+        emergency_codes = rules.get(
+            "emergency_diseases",
+            ["crvo", "aion"],
+        )
+        emergency_threshold = float(rules.get("emergency_probability", 0.5))
+        referral = str(data.get("referral_urgency") or "").lower()
+
+        # ── MULTI-SEM-001 — 응급 질환 자동 플래그 ─────────
+        for code in emergency_codes:
+            prob = probs.get(str(code).lower(), 0.0)
+            if prob > emergency_threshold and referral != "immediate":
+                result.add(self._error(
+                    "MULTI-SEM-001",
+                    f"{code.upper()} probability={prob:.2f}>{emergency_threshold} "
+                    f"인데 referral_urgency='{referral}' (immediate 기대)",
+                    field="referral_urgency",
+                    value=referral,
+                    suggestion="CRVO/AION 고확률 → immediate 의뢰",
+                ))
+
+        # ── MULTI-SEM-002 — DR + ARMD 복합 질환 ───────────
+        dr_p = probs.get("dr", 0.0)
+        armd_p = probs.get("armd", 0.0)
+        if dr_p >= threshold and armd_p >= threshold:
+            result.add(self._warning(
+                "MULTI-SEM-002",
+                "당뇨망막병증+황반변성 복합 소견 — 당뇨·황반 동시 관리 및 OCT 추적 권장",
+                field="probabilities",
+                value={"dr": dr_p, "armd": armd_p},
+                suggestion="당뇨+황반 복합 경고 — endocrinology + retina co-management",
+            ))
+
+        # ── MULTI-SEM-003 — 정상 판정 조건 ────────────────
+        normal_flag = data.get("normal")
+        all_below = all(p < threshold for p in probs.values()) if probs else True
+        if normal_flag is not None:
+            if all_below and normal_flag is not True:
+                result.add(self._error(
+                    "MULTI-SEM-003",
+                    f"모든 질환 probability<{threshold} 인데 normal={normal_flag}",
+                    field="normal",
+                    value=normal_flag,
+                    suggestion="전 클래스 < threshold → normal=True",
+                ))
+            elif not all_below and normal_flag is True:
+                result.add(self._error(
+                    "MULTI-SEM-003",
+                    f"질환 probability≥{threshold} 존재하는데 normal=True",
+                    field="normal",
+                    value=normal_flag,
+                    suggestion="탐지 소견 있으면 normal=False",
                 ))
 
     async def _validate_software_semantic(self, data: dict, rules: dict,
