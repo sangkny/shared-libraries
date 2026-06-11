@@ -13,6 +13,7 @@ fi
 echo "=== Partner register + analyze (four_agent) ==="
 docker exec medi-iot-api-dev printenv 2>/dev/null | grep -E '^AGENT_' || true
 
+export MEDI_URL IMG
 python3 "${ROOT}/scripts/partner_e2e_inline.py" \
   --base-url "$MEDI_URL" \
   --image "$IMG" \
@@ -38,8 +39,16 @@ reg = json.loads(urllib.request.urlopen(
 key = reg["api_key"]
 req = urllib.request.Request(
     f"{base}/api/v1/partner/analyze",
-    data=json.dumps({"image_base64": b64, "patient_id": "patient-rollout-3", "lang": "ko"}).encode(),
-    headers={"Content-Type": "application/json", "X-API-Key": key},
+    data=json.dumps({
+        "partner_id": reg["partner_id"],
+        "api_key": key,
+        "image_base64": b64,
+        "patient_id": "patient-rollout-3",
+        "lang": "ko",
+        "analysis_type": "fundus",
+        "return_format": "json",
+    }).encode(),
+    headers={"Content-Type": "application/json"},
     method="POST",
 )
 out = json.loads(urllib.request.urlopen(req, timeout=180).read())

@@ -5,51 +5,39 @@
 
 ---
 
-## LM Studio 네트워크 (2026-06-11) ✅
+## LM Studio 실연동 (2026-06-11) ✅
 
-| 환경 | URL |
-|------|-----|
-| WSL | `http://192.168.0.12:1234/v1` |
-| Docker | `http://host.docker.internal:1234/v1` |
-| Windows | `http://localhost:1234/v1` |
+| URL | 환경 |
+|-----|------|
+| `http://192.168.0.12:1234/v1` | WSL |
+| `http://host.docker.internal:1234/v1` | Docker |
 
-- **문제**: SVG-Stock `:8000` 점유 → LM Studio 8000 충돌
-- **해결**: LM Studio **1234** + Serve on Local Network
-- **검증**: WSL·컨테이너 4모델 · `test_lm_chat_wsl.py` ✅
-- **SSOT**: `../docs/NETWORK-GUIDE.md` · `.env.example`
+| 검증 | 결과 |
+|------|------|
+| `test_lm_chat_wsl.py` | ✅ `reply=안녕하세요` |
+| `test_workflow_e2e.py` | ✅ 5 passed (mock) |
+| `run_workflow_live_smoke.py` | 코드·문서 2시나리오 |
+| `generate_irb_draft.py` | IRB 초안 |
+
+**모델**: gemma-4-26b · gemma-4-e4b · mistral-7b · nomic-embed
 
 ```bash
-cp .env.example .env.local
-python scripts/probe_lm_studio.py
-python scripts/test_lm_chat_wsl.py
+LM_STUDIO_BASE_URL=http://192.168.0.12:1234/v1 PYTHONPATH=. \
+  python3 scripts/test_lm_chat_wsl.py
+PYTHONPATH=. python3 scripts/run_workflow_live_smoke.py
+bash scripts/run_lm_studio_four_agent_tests.sh
 ```
-
----
-
-## 구현 완료 (2026-06-11)
-
-| 모듈 | 상태 |
-|------|------|
-| `llm/client.py` | 5 Provider ✅ |
-| `agents/*` | Planner/Generator/Reviewer/Fixer ✅ |
-| `orchestrator/workflow.py` | AutoNoGaDaWorkflow ✅ |
-| `tests/test_workflow_e2e.py` | mock E2E ✅ |
-| `scripts/probe_lm_studio.py` | 1234 우선 탐색 ✅ |
 
 ---
 
 ## 다음 우선순위
 
-1. **Workflow IRB** — `AutoNoGaDaWorkflow.run()` → ch45 §45.10
-2. **harness** — 3-플랫폼 E2E
-3. **run_lm_studio_four_agent_tests.sh** — 실 LLM 통합
+1. **MEDI** `POST /lab/fundus/report` E2E
+2. **Dashboard** 브라우저 체크리스트 (`MEDI/docs/BROWSER-E2E-CHECKLIST.md`)
+3. **SaMD IRB** 제출 패키지
 
 ---
 
-## 테스트
+## Git
 
-```bash
-python -m pytest tests/test_workflow_e2e.py -q
-python scripts/test_lm_chat_wsl.py
-bash scripts/run_lm_studio_four_agent_tests.sh
-```
+`f7e6916`+ · LM Studio 1234 · `deb0160` Workflow

@@ -1,6 +1,6 @@
 # shared-libraries 스크립트 레퍼런스
 
-> 최종 업데이트: 2026-06-11
+> 최종 업데이트: 2026-06-11 (LM Studio **:1234**)
 
 ## 4-에이전트 / LM Studio
 
@@ -8,6 +8,8 @@
 |----------|------|-----------|
 | `scripts/probe_lm_studio.py` | `/v1/models` 프로브 · URL 자동 감지 | 선택 |
 | `scripts/test_lm_chat_wsl.py` | WSL→Windows LM Studio **chat** 스모크 | **필요** |
+| `scripts/run_workflow_live_smoke.py` | AutoNoGaDaWorkflow 코드·문서 2시나리오 | **필요** |
+| `scripts/generate_irb_draft.py` | IRB 연구계획서 초안 → `/tmp/irb_draft.txt` | **필요** |
 | `scripts/run_lm_studio_four_agent_tests.sh` | Docker `shared-libs-dev`에서 실 LLM 통합 테스트 | **필요** |
 | `scripts/medi_four_agent_e2e_smoke.sh` | MEDI fundus comprehensive · legacy vs four_agent | 불필요 |
 | `scripts/partner_four_agent_e2e.sh` | Partner API register+analyze · audit_trail | 불필요 |
@@ -36,8 +38,17 @@
 - **역할**: `probe_lm_studio`로 URL 찾은 뒤 `LLMClient.chat()` 1회 호출
 - **WSL**: Windows `curl.exe` / `127.0.0.1:8000` 폴백 지원
 
+## LM Studio URL (2026-06-11)
+
+| 환경 | URL |
+|------|-----|
+| WSL | `http://192.168.0.12:1234/v1` |
+| Docker | `http://host.docker.internal:1234/v1` |
+
+> SVG-Stock `:8000` 충돌 — LM Studio는 **1234** 사용. `projects/docs/NETWORK-GUIDE.md`
+
 ## 관련 문서
 
+- `projects/docs/NETWORK-GUIDE.md`
 - `book/part7/ch31-four-agent-decision.md`
-- `book/appendix/env-reference.md` — `AGENT_*` env
 - `orchestrator/workflow.py` — AutoNoGaDaWorkflow
