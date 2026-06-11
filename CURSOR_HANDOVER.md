@@ -1,115 +1,48 @@
 # shared-libraries — Cursor Agent 인수인계
 
-> 최종 업데이트: 2026-06-09  
-> **3-플랫폼 통합**: `MEDI-IOT-EyeCare/docs/PLATFORM-OVERVIEW.md`  
+> 최종 업데이트: 2026-06-11  
 > **메타 HANDOVER**: `idea-collection/CURSOR_HANDOVER.md`
 
 ---
 
-## 역할 — 3-플랫폼 공통 DNA
+## 구현 완료 (2026-06-11)
 
-`shared-libraries`는 **MEDI-IOT · AutoNoGaDa · CoOps**가 공유하는 Python 패키지입니다.  
-각 SaaS는 `PYTHONPATH` 또는 Docker volume으로 import합니다.
-
-```
-shared-libraries/
-├── llm/           # 5 Provider 추상화
-├── agents/        # Planner·Generator·Reviewer·Fixer
-├── ontology/      # Semantic/Structural Validator
-├── auth/          # JWT · RBAC
-├── saas/          # Billing · Stripe · Quota
-├── notifications/ # FCM · APNs · Inbox
-├── harness/       # 통합 시나리오
-└── observability/ # Prometheus · decision_metrics
-```
+| 모듈 | 상태 |
+|------|------|
+| `llm/client.py` | 5 Provider (local/openai/anthropic/google/azure) ✅ |
+| `agents/orchestrator.py` | PIPELINE/CONSENSUS/DEBATE/FASTEST ✅ |
+| `agents/planner.py` · `generator.py` · `reviewer.py` · `fixer.py` | LLM 프롬프트 + 파싱 ✅ |
+| `orchestrator/workflow.py` | `AutoNoGaDaWorkflow` plan/generate/review/fix ✅ |
+| `ontology/validator.py` | SemanticValidator · MED-SEM 20+ ✅ |
+| `tests/test_workflow_e2e.py` | mock E2E (LM Studio 불필요) ✅ |
 
 ---
 
-## 소비자별 연동 현황
+## 스크립트 (2026-06-11 정리)
 
-| 모듈 | MEDI-IOT | AutoNoGaDa | CoOps |
-|------|----------|------------|-------|
-| `llm` | diagnosis explain · vision | 코드 생성 | IR/Video/SNS |
-| `agents` | four_agent decision | ADK 파이프라인 | 결재 문서 |
-| `ontology` | MED-SEM 20+ | CODE 룰 | BUSINESS 룰 |
-| `auth` | JWT · clinical RBAC | API 인증 | 모바일 JWT |
-| `saas` | medi billing · Stripe | ADK billing | coops billing |
-| `notifications` | — | — | inbox · push hook |
-| `harness` | MEDI 시나리오 | ADK 시나리오 | CoOps E2E |
+| 스크립트 | 용도 |
+|----------|------|
+| `do_commit_sl.sh` | shared-libraries 안전 커밋 |
+| `partner_four_agent_e2e.sh` | Partner API four_agent smoke |
+| `test_lm_chat_wsl.py` | LM Studio WSL chat 스모크 |
+| `probe_lm_studio.py` | URL 자동 감지 |
 
----
-
-## AutoNoGaDa 활용 사례 (shared 기반)
-
-AutoNoGaDa-ADK는 shared-libraries를 **최대 활용**하는 SaaS입니다.
-
-| 활용 | shared 모듈 | 결과 |
-|------|-------------|------|
-| 코드 리뷰·생성 | `agents` + `ontology`(CODE) | MEDI 134 unit 유지 |
-| LLM 전환 | `llm` Provider factory | LOCAL ↔ cloud 무중단 |
-| 과금 | `saas` StripeService | ADK checkout/webhook |
-| 회귀 | `harness` scenarios | 45 시나리오 |
-
-**실증**: shared 없이는 MEDI 5질환·v10·문서 250페이지 규모를 수 주에 구축 불가
-
----
-
-## CoOps 연동 현황
-
-| 기능 | shared 모듈 | API |
-|------|-------------|-----|
-| Push | `notifications.gateway` | FCM/APNs/Expo |
-| Inbox | `notifications` InboxService | `GET /inbox` |
-| Billing | `saas` make_billing_models | Stripe R2/R3 |
-| 결재 hook | `_notify_safe` | approvals 3 routes |
-| MEDI 연동 | (HTTP client) | `mediApi` reviews |
-
-모바일 R3: FCM OAuth2 · APNs ES256 JWT 1h 캐시 · retention loop
-
----
-
-## MEDI-IOT 연동 현황
-
-| 기능 | shared 모듈 |
-|------|-------------|
-| 4-agent diagnosis | `agents` · `observability/decision_metrics` |
-| 의료 ontology | `ontology` MED-SEM |
-| Partner audit | `audit_trail` in lab API |
-| Billing | `saas` medi prefix tables |
-| Auth | `auth` dependencies |
-
-`AGENT_DECISION_MODE=four_agent` ROLLOUT=100% · A/B agreement 100%
-
----
-
-## 테스트·회귀
-
-```bash
-cd projects/shared-libraries
-python -m pytest tests/ -q
-
-# Tier 0 (LM Studio 불필요)
-cd idea-collection && bash scripts/check-ontology-harness.sh
-```
-
-| 스냅샷 | PASS |
-|--------|------|
-| shared unit | 87+ |
-| + CoOps | 68+ |
-| + MEDI (via compose) | 134 unit |
+상세: `docs/SCRIPTS-REFERENCE.md`
 
 ---
 
 ## 다음 우선순위
 
-1. CoOps M4 — 모바일 fundus → MEDI comprehensive API
-2. ontology MED-SEM — v10b 성능 연동
-3. harness — 3-플랫폼 E2E 시나리오 추가
+1. **LM Studio 실연동** — `test_lm_chat_wsl.py` · `run_lm_studio_four_agent_tests.sh`
+2. **Workflow IRB 초안** — `AutoNoGaDaWorkflow.run()` → ch45 §45.10
+3. **harness** — 3-플랫폼 E2E 시나리오
 
 ---
 
-## 관련 문서
+## 테스트
 
-- `book/part3/ch07~ch10` — shared-libraries 구현 상세
-- `book/part1/ch01-platform-overview.md` — 3-플랫폼 개요
-- `book/part7/ch46-business-strategy.md` — 사업화
+```bash
+cd projects/shared-libraries
+python -m pytest tests/test_workflow_e2e.py -q
+python scripts/test_lm_chat_wsl.py   # LM Studio 필요
+```
