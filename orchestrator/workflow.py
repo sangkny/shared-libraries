@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from agents.base import AgentResult
 from agents.orchestrator import OrchestraStrategy, Orchestrator, OrchestratorResult
 from ontology.base import OntologyDomain
 
@@ -54,28 +55,78 @@ class WorkflowResult:
 
 class AutoNoGaDaWorkflow:
     """
-    범용 4-에이전트 워크플로우 파사드.
+    범용 4-에이전트 워크플로우 파사드 (Plan → Generate → Review → Fix).
 
     사용 예::
 
         wf = AutoNoGaDaWorkflow()
-        result = await wf.run("pytest 회귀 스크립트 추가")
-        if result.passed:
-            print(result.output)
+        result = await wf.run("IRB 연구계획서 초안")
+        # 또는 단계별:
+        plan = await wf.plan(task)
+        draft = await wf.generate(task, plan.output)
     """
 
     def __init__(self, config: WorkflowConfig | None = None, **kwargs: Any) -> None:
         self.config = config or WorkflowConfig()
         self._kwargs = kwargs
+        self._orch: Orchestrator | None = None
 
     def _build_orchestrator(self) -> Orchestrator:
-        return Orchestrator(
-            domain=self.config.domain,
-            strategy=self.config.strategy,
-            max_iterations=self.config.max_iterations,
-            fastest_timeout_sec=self.config.fastest_timeout_sec,
-            **self._kwargs,
-        )
+        if self._orch is None:
+            self._orch = Orchestrator(
+                domain=self.config.domain,
+                strategy=self.config.strategy,
+                max_iterations=self.config.max_iterations,
+                fastest_timeout_sec=self.config.fastest_timeout_sec,
+                **self._kwargs,
+            )
+        return self._orch
+
+    async def plan(self, task: str, context: dict | None = None) -> AgentResult:
+        """Step 1: PlannerAgent — 실행 계획 수립."""
+        orch = self._build_orchestrator()
+        return await orch._planner.run(task, context or {})
+
+    async def generate(
+        self,
+        task: str,
+        plan: Any,
+        context: dict | None = None,
+        *,
+        iteration: int = 0,
+        feedback: str = "",
+    ) -> AgentResult:
+        """Step 2: GeneratorAgent — 계획 기반 산출물 생성."""
+        orch = self._build_orchestrator()
+        ctx = {"plan": plan, "iteration": iteration, "feedback": feedback, **(context or {})}
+        return await orch._generator.run(task, ctx)
+
+    async def review(
+        self,
+        task: str,
+        generated: Any,
+        context: dict | None = None,
+        *,
+        iteration: int = 0,
+    ) -> AgentResult:
+        """Step 3: ReviewerAgent — Ontology·품질 검증."""
+        orch = self._build_orchestrator()
+        ctx = {"generated": generated, "iteration": iteration, **(context or {})}
+        return await orch._reviewer.run(task, ctx)
+
+    async def fix(
+        self,
+        task: str,
+        generated: Any,
+        review: Any,
+        context: dict | None = None,
+        *,
+        iteration: int = 0,
+    ) -> AgentResult:
+        """Step 4: FixerAgent — 리뷰 피드백 반영 수정."""
+        orch = self._build_orchestrator()
+        ctx = {"generated": generated, "review": review, "iteration": iteration, **(context or {})}
+        return await orch._fixer.run(task, ctx)
 
     async def run(self, task: str, context: dict | None = None) -> WorkflowResult:
         """Plan→Generate→Review→Fix 루프 실행."""
@@ -85,18 +136,9 @@ class AutoNoGaDaWorkflow:
 
     async def run_pipeline(self, task: str, context: dict | None = None) -> WorkflowResult:
         """PIPELINE 전략 고정 실행 (AutoNoGaDa 기본)."""
-        cfg = WorkflowConfig(
-            domain=self.config.domain,
-            strategy=OrchestraStrategy.PIPELINE,
-            max_iterations=self.config.max_iterations,
-            fastest_timeout_sec=self.config.fastest_timeout_sec,
-        )
-        orch = Orchestrator(
-            domain=cfg.domain,
-            strategy=cfg.strategy,
-            max_iterations=cfg.max_iterations,
-            fastest_timeout_sec=cfg.fastest_timeout_sec,
-            **self._kwargs,
-        )
-        raw = await orch.execute(task, context)
-        return WorkflowResult.from_orchestrator(raw)
+        saved = self.config.strategy
+        self.config.strategy = OrchestraStrategy.PIPELINE
+        try:
+            return await self.run(task, context)
+        finally:
+            self.config.strategy = saved
