@@ -1,22 +1,20 @@
 #!/usr/bin/env python3
-"""LM Studio 연결 프로브 — WSL/Windows 환경 자동 감지."""
+"""LM Studio 연결 프로브 — WSL/Windows/Docker 환경 자동 감지."""
 import os
 import subprocess
 import sys
 
 import httpx
 
+# 우선순위: env → 192.168.0.12:1234 (WSL 권장) → WSL gateway → localhost → docker → :8000 fallback
 CANDIDATES = [
     os.getenv("LM_STUDIO_BASE_URL", "").rstrip("/"),
+    os.getenv("LOCAL_BASE_URL", "").rstrip("/"),
     "http://192.168.0.12:1234/v1",
     "http://172.29.192.1:1234/v1",
     "http://127.0.0.1:1234/v1",
     "http://localhost:1234/v1",
     "http://host.docker.internal:1234/v1",
-    "http://127.0.0.1:8000/v1",
-    "http://localhost:8000/v1",
-    "http://host.docker.internal:8000/v1",
-    os.getenv("LM_STUDIO_BASE_URL", "").rstrip("/"),
     "http://127.0.0.1:8000/v1",
     "http://localhost:8000/v1",
     "http://host.docker.internal:8000/v1",
