@@ -1,7 +1,7 @@
 # shared-libraries/llm/providers/local.py
 """
 Local Provider — LM Studio (OpenAI 호환 API)
-개발 환경: http://127.0.0.1:8000/v1 (호스트) / Docker: http://host.docker.internal:8000/v1
+개발 환경: http://127.0.0.1:1234/v1 (호스트) / Docker: http://host.docker.internal:1234/v1
 """
 import os, time
 from openai import AsyncOpenAI
@@ -11,17 +11,18 @@ from ..base import BaseProvider, LLMProvider, ModelRole, LLMRequest, LLMResponse
 class LocalProvider(BaseProvider):
     """
     LM Studio Local LLM Provider
-    - 포트: 8000 (기본값, 환경변수로 변경 가능)
+    - 포트: 1234 (기본값, 환경변수로 변경 가능)
     - 현재 모델: gemma-4-e4b, gemma-4-26b-a4b, mistral-7b, nomic-embed
     - OpenAI 호환 API 사용
     """
 
     def __init__(self):
+        self._base_url = os.getenv(
+            "LOCAL_BASE_URL",
+            "http://127.0.0.1:1234/v1",
+        )
         self._client = AsyncOpenAI(
-            base_url=os.getenv(
-                "LOCAL_BASE_URL",
-                "http://127.0.0.1:8000/v1",
-            ),
+            base_url=self._base_url,
             api_key=os.getenv("LOCAL_API_KEY", "lm-studio"),  # LM Studio는 아무 값이나 OK
         )
 
@@ -78,8 +79,7 @@ class LocalProvider(BaseProvider):
     def health_check(self) -> dict:
         import httpx
         try:
-            base = os.getenv("LOCAL_BASE_URL", "http://host.docker.internal:8000/v1")
-            # 동기 클라이언트 사용 — event loop 충돌 방지
+            base = self._base_url.rstrip("/")
             with httpx.Client(timeout=3) as client:
                 r = client.get(f"{base}/models")
             models = [m["id"] for m in r.json().get("data", [])]

@@ -1,25 +1,34 @@
 # shared-libraries — Cursor Agent 인수인계
 
-> 최종 업데이트: 2026-06-11 · Git: `3f938b1`  
+> 최종 업데이트: **2026-06-14** · Git: `1b6be32` → LLM 가이드 커밋 예정  
 > **메타 HANDOVER**: `idea-collection/CURSOR_HANDOVER.md`
 
 ---
 
-## LM Studio 실연동 ✅
+## LM Studio 상태: **OFF** (2026-06-14)
 
-| 환경 | URL |
-|------|-----|
+HDD 100% 사용으로 LM Studio 종료. LLM 호출 테스트·보고서·AutoNoGaDa는 **건너뜀**.
+
+```
+⚠️ LM Studio 켜주세요: port 1234, Serve on Local Network
+```
+
+| 환경 | URL (켜졌을 때) |
+|------|-----------------|
 | WSL | `http://192.168.0.12:1234/v1` |
 | Docker | `http://host.docker.internal:1234/v1` |
 
-**모델**: gemma-4-26b · gemma-4-e4b · mistral-7b · nomic-embed
+**설정 SSOT**: `llm/.env.example` · `docs/LLM-SETUP-GUIDE.md`
 
-| 검증 | 결과 |
-|------|------|
-| `test_lm_chat_wsl.py` | ✅ `reply=안녕하세요` |
-| `test_workflow_e2e.py` | ✅ 5 passed |
-| `run_workflow_live_smoke.py` | ✅ 코드·문서 2시나리오 |
-| `generate_irb_draft.py` | IRB 초안 생성 |
+---
+
+## MEDI v10e (연동 현황)
+
+| 항목 | 상태 |
+|------|-----|
+| GPU 훈련 | v10e 진행 중 (GL ep4=0.764) |
+| v2_cache | 완료 |
+| LLM 보고서 | LM Studio OFF → 대기 |
 
 ---
 
@@ -28,41 +37,24 @@
 | 모듈 | 상태 |
 |------|------|
 | `llm/` | 5 Provider (LOCAL/OpenAI/Claude/Gemini/Azure) |
+| `llm/.env.example` | 포트 **1234** 반영 ✅ |
+| `docs/LLM-SETUP-GUIDE.md` | §1~§5 ✅ |
 | `agents/` | Planner · Generator · Reviewer · Fixer |
-| `orchestrator/workflow.py` | `AutoNoGaDaWorkflow` (Plan→Generate→Review→Fix) |
-| `ontology/validator.py` | MED-SEM 20+ |
-
-### 실증 사례
-
-- 코드 자동화: patient_id/OD·OS 추출 함수
-- 문서 자동화: 진단 요약 (DR/GL/AMD)
-- MEDI 보고서: `POST /lab/fundus/report`
+| `orchestrator/workflow.py` | `AutoNoGaDaWorkflow` |
 
 ---
 
-## 미완료 / 이슈
-
-| 항목 | 상태 |
-|------|------|
-| `partner_four_agent_e2e.sh` | 409/500 — **`partner_e2e_inline.py`로 대체 예정** |
-| Dashboard E2E | Vite `:5174` 기동 후 수동 확인 |
-
----
-
-## 다음 우선순위
-
-1. `partner_e2e_inline.py` 안정화 (실 fundus 이미지)
-2. `run_lm_studio_four_agent_tests.sh` Docker 실 LLM
-3. IRB 초안: `python3 scripts/generate_irb_draft.py`
-
----
-
-## 스크립트
-
-상세: `docs/SCRIPTS-REFERENCE.md`
+## LM Studio ON 후 검증
 
 ```bash
 LM_STUDIO_BASE_URL=http://192.168.0.12:1234/v1 PYTHONPATH=. \
   python3 scripts/test_lm_chat_wsl.py
 PYTHONPATH=. python3 scripts/run_workflow_live_smoke.py
 ```
+
+---
+
+## 참고
+
+- SVG-Stock 실행 시 포트 **8000** 충돌 → LM Studio는 **1234** 사용
+- `LLM_FALLBACK_ENABLED=true` 시 운영 Provider 실패 시 local 재시도
