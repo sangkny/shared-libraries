@@ -13,8 +13,19 @@ POLICIES: Final[dict[str, dict[str, list[str]]]] = {
         "doctor": [
             "read", "create_exam", "ai_analyze", "upload_image",
             "promote_diagnosis", "review_diagnosis",
+            "clinical_study_read", "clinical_study_manage",
+            "clinical_subject_read", "clinical_subject_manage",
+            "clinical_visit_read", "clinical_visit_manage",
+            "clinical_observation_read", "clinical_observation_create",
+            "clinical_observation_finalize", "clinical_observation_correct",
+            "clinical_questionnaire_read", "clinical_questionnaire_manage",
+            "clinical_audit_read",
         ],
-        "staff": ["read", "create_patient"],
+        "staff": [
+            "read", "create_patient",
+            "clinical_study_read", "clinical_subject_read", "clinical_visit_read",
+            "clinical_observation_read", "clinical_questionnaire_read", "clinical_audit_read",
+        ],
         "admin": ["*"],
     },
     "autonogada": {
