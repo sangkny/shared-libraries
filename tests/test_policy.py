@@ -15,6 +15,16 @@ def test_medi_doctor_ai_analyze() -> None:
     assert not e.check("medi-iot", "doctor", "dashboard_stats")
 
 
+def test_medi_clinical_actions_follow_existing_roles() -> None:
+    e = PolicyEngine()
+    assert e.check("medi-iot", "doctor", "clinical_observation_create")
+    assert e.check("medi-iot", "doctor", "clinical_observation_correct")
+    assert e.check("medi-iot", "staff", "clinical_observation_read")
+    assert not e.check("medi-iot", "staff", "clinical_observation_create")
+    assert e.check("medi-iot", "doctor", "read")
+    assert e.check("medi-iot", "staff", "create_patient")
+
+
 def test_medi_admin_wildcard() -> None:
     e = PolicyEngine()
     assert e.check("medi-iot", "admin", "dashboard_stats")
