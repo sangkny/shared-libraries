@@ -2,6 +2,32 @@
 
 ## 진행 기록
 
+### 2026-10-25T00:29:22+09:00 — PC1-EYECARE-PHASE008-PUBLICATION-002
+
+```
+TASK_ID: PC1-EYECARE-PHASE008-PUBLICATION-002
+EXECUTION_HOST: MEDIIOT-SKLEE
+PC_ROLE: PC1
+REPOSITORY: shared-libraries
+LOCAL_WORKTREE: E:/Office_Automation/idea-collection/projects/_integration_shared_008
+BRANCH: integration/clinical-data-lock-008
+REMOTE: origin https://github.com/sangkny/shared-libraries.git
+HEAD_BEFORE: dc68cb4e98220b77b9ddc5a5dc37a1b2bdfe816f
+SOURCE_SHA: 8a8b6a406cc22d120b8da49635efaec7ea826145
+MERGE_COMMIT: e6bb2273211234a563314ec29b6027d2672e7921
+PARENTS: dc68cb4e98220b77b9ddc5a5dc37a1b2bdfe816f 8a8b6a406cc22d120b8da49635efaec7ea826145
+START_TIME_KST: 2026-10-25T00:27:39+09:00
+END_TIME_KST: 2026-10-25T00:29:22+09:00
+ELAPSED: PT1M43S
+PARENT_ARCHITECTURE_SHA: 633c7303edf8ac35a513c5a59b63185e8f336d76
+TEST_RESULTS: tests/test_policy.py 8 passed, exit 0, aiosqlite workers 0
+PUSH: origin new branch. Remote matches e6bb227 before this documentation commit. No force
+PR_URL: https://github.com/sangkny/shared-libraries/pull/3
+PR_BASE: integration/clinical-query-quality-007
+PR_STATE: Draft. Not merged. Draft PR 1 and 2 unchanged
+RISK: EyeCare test_lock_api_authorization 실패 경로는 비동기 엔진 dispose가 finally에 없다. 별도 테스트 유지 작업으로 남긴다
+```
+
 ### 2026-10-24T17:47:45+09:00 — PC1-EYECARE-PHASE008-INTEGRATION-001
 
 ```
