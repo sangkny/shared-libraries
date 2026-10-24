@@ -2,6 +2,27 @@
 
 ## 진행 기록
 
+### 2026-10-24T17:47:45+09:00 — PC1-EYECARE-PHASE008-INTEGRATION-001
+
+```
+TASK_ID: PC1-EYECARE-PHASE008-INTEGRATION-001
+EXECUTION_HOST: MEDIIOT-SKLEE
+PC_ROLE: PC1
+REPOSITORY: shared-libraries
+LOCAL_WORKTREE: E:/Office_Automation/idea-collection/projects/_integration_shared_008
+BRANCH: integration/clinical-data-lock-008
+HEAD: dc68cb4e98220b77b9ddc5a5dc37a1b2bdfe816f
+MERGE_HEAD: 8a8b6a406cc22d120b8da49635efaec7ea826145
+START_TIME_KST: 2026-10-24T17:43:11+09:00
+END_TIME_KST: 2026-10-24T17:47:45+09:00
+ELAPSED: PT4M34S
+PARENT_ARCHITECTURE_SHA: 633c7303edf8ac35a513c5a59b63185e8f336d76
+FILES: auth/policy.py, tests/test_policy.py. 병합은 커밋하지 않음
+ACTIONS: clinical_lock_read, clinical_lock_request, clinical_lock_apply, clinical_unlock_request, clinical_unlock_approve, clinical_readiness_read, clinical_monitor_read, clinical_monitor_execute, clinical_protocol_manage
+TEST_RESULTS: tests/test_policy.py 8 passed, exit 0
+OPEN_ISSUES: 007 통합 정책만으로는 008 API가 거부된다. 이 후보가 먼저 필요하다
+```
+
 ### 2026-10-24T17:06:06+09:00 — PC1-EYECARE-PHASE007-PUBLICATION-007
 
 ```
