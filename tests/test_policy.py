@@ -42,6 +42,26 @@ def test_medi_query_and_quality_actions() -> None:
     assert not engine.check("medi-iot", "staff", "clinical_quality_execute")
 
 
+def test_medi_lock_actions_stay_on_existing_roles() -> None:
+    engine = PolicyEngine()
+    for action in (
+        "clinical_lock_read",
+        "clinical_lock_request",
+        "clinical_lock_apply",
+        "clinical_unlock_request",
+        "clinical_unlock_approve",
+        "clinical_readiness_read",
+        "clinical_monitor_execute",
+        "clinical_protocol_manage",
+    ):
+        assert engine.check("medi-iot", "doctor", action)
+    assert engine.check("medi-iot", "staff", "clinical_lock_read")
+    assert engine.check("medi-iot", "staff", "clinical_readiness_read")
+    assert not engine.check("medi-iot", "staff", "clinical_lock_apply")
+    assert not engine.check("medi-iot", "staff", "clinical_unlock_approve")
+    assert not engine.check("medi-iot", "staff", "clinical_monitor_execute")
+
+
 def test_medi_admin_wildcard() -> None:
     e = PolicyEngine()
     assert e.check("medi-iot", "admin", "dashboard_stats")
